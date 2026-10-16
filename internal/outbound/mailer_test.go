@@ -137,3 +137,76 @@ func TestReplaceMessageID(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestPutIngestURL(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.Method != "PUT" || r.URL.Path != "/config" || sig.Verify(secret, r.Header, body, time.Now()) != nil {
+			http.Error(w, "bad", 400)
+			return
+		}
+		got = string(body)
+	}))
+	defer srv.Close()
+	s := &Sender{WorkerURL: srv.URL, Secret: secret}
+	if err := s.PutIngestURL(context.Background(), "https://inbox.example.test/internal/ingest"); err != nil {
+		t.Fatal(err)
+	}
+	if got != `{"ingest_url":"https://inbox.example.test/internal/ingest"}` {
+		t.Fatalf("body %s", got)
+	}
+}
+
+func TestRichComposeWithInlineImage(t *testing.T) {
+	m, _, _, got := setup(t)
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	html := `<p>Hello <b>there</b> <a href="https://x.test/p" onclick="evil()">link</a></p>` +
+		`<script>alert(1)</script><p style="color:red">ok<img src="data:image/png;base64,` + png + `" onerror="x()"></p>` +
+		`<ul><li>one</li><li>two</li></ul><img src="javascript:alert(1)">`
+	if _, err := m.Compose(context.Background(), ComposeOptions{InboxID: 1, Identity: "c@gmail.com", To: "qa@gmail.com", Subject: "Rich", HTML: html}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := mailparse.Parse([]byte((*got)[0].raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"<script", "onclick", "onerror", "javascript:", "color:red", "data:image"} {
+		if strings.Contains(p.HTML, bad) {
+			t.Errorf("html keeps %q: %s", bad, p.HTML)
+		}
+	}
+	for _, want := range []string{"<b>there</b>", `href="https://x.test/p"`, "<li>one</li>", `src="cid:image1.`} {
+		if !strings.Contains(p.HTML, want) {
+			t.Errorf("html lacks %q: %s", want, p.HTML)
+		}
+	}
+	for _, want := range []string{"Hello there link (https://x.test/p)", "- one", "[image]"} {
+		if !strings.Contains(p.Text, want) {
+			t.Errorf("text lacks %q: %q", want, p.Text)
+		}
+	}
+	var inline *mailparse.Attachment
+	for i := range p.Attachments {
+		if p.Attachments[i].ContentType == "image/png" {
+			inline = &p.Attachments[i]
+		}
+	}
+	if inline == nil || inline.ContentID == "" || !strings.Contains(p.HTML, "cid:"+inline.ContentID) || len(inline.Data) < 60 {
+		t.Fatalf("inline image not embedded/referenced: %+v", p.Attachments)
+	}
+}
+
+func TestRichReplyQuotesHTML(t *testing.T) {
+	m, _, orig, got := setup(t)
+	if _, err := m.Reply(context.Background(), orig, ReplyOptions{HTML: "<p>Thanks <i>a lot</i></p>", Quote: true}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := mailparse.Parse([]byte((*got)[0].raw))
+	if !strings.Contains(p.HTML, "<i>a lot</i>") || !strings.Contains(p.HTML, "<blockquote") || !strings.Contains(p.HTML, "Line one") {
+		t.Errorf("html: %s", p.HTML)
+	}
+	if !strings.Contains(p.Text, "Thanks a lot") || !strings.Contains(p.Text, "> Line one") {
+		t.Errorf("text: %q", p.Text)
+	}
+}

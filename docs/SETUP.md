@@ -59,7 +59,7 @@ cp wrangler.example.toml wrangler.toml
 Edit `worker/wrangler.toml` (it is gitignored, your values stay local):
 
 - `kv_namespaces` → put the printed id into `id`. Keep `binding = "KV"`; ignore the binding name wrangler suggests.
-- `INGEST_URL` → `https://<app hostname>/internal/ingest`.
+- `INGEST_URL` → `https://<app hostname>/internal/ingest`. This is only a fallback: once the app runs with `MC_PUBLIC_URL`, it tells the Worker its address itself.
 
 Create the shared secret and deploy:
 
@@ -75,7 +75,7 @@ On the first deploy wrangler may ask to register a `workers.dev` subdomain — s
 
 **Email → Email Routing → Routing rules → Catch-all address** → action **Send to a Worker** → `mailcatcher` → enable.
 
-From now on every mail to `*@<domain>` reaches the Worker. If the app is not reachable, mail is kept in Workers KV (automatic pickup by the app is upcoming).
+From now on every mail to `*@<domain>` reaches the Worker. If the app is not reachable, mail is kept in Workers KV; the app collects it within a minute of coming back.
 
 ## 5. Create the Cloudflare Tunnel
 
@@ -110,13 +110,21 @@ Fill in `.env`:
 | `MC_HMAC_SECRET` | The same value you gave `wrangler secret put HMAC_SECRET`. |
 | `MC_DOMAIN` | `<domain>` |
 | `MC_CF_API_TOKEN`, `MC_CF_ACCOUNT_ID` | Token and account ID from step 6 (optional). |
+| `MC_PUBLIC_URL` | `https://<app hostname>` from step 5. Changing the hostname later = new public hostname in the tunnel + new `MC_PUBLIC_URL` + restart; no Worker redeploy. |
 | `MC_WORKER_URL` | The Worker URL from step 3 (`https://mailcatcher.<subdomain>.workers.dev`). Without it, reply/compose/forward are disabled. |
+| `MC_RETENTION_DAYS` | Optional, default `30`. Messages older than this are deleted; `0` keeps everything. |
+| `MC_UID`, `MC_GID` | Owner of `./data` on the host (default `1000`). |
 | `MC_ADMIN_PASSWORD` | Optional. Password for the first `admin` user. Leave empty to get a random one in the log. |
 
+Create the data folder as the user that should own it (its uid/gid go into `MC_UID`/`MC_GID`, see `id`), then start:
+
 ```sh
-docker compose up -d
+mkdir -p data
+docker compose up -d --build
 docker compose logs -f mailcatcher
 ```
+
+`cloudflared` starts once the app reports healthy. Mail that arrived before the app was up is collected from Workers KV within a minute.
 
 Data (database, raw mail, attachments) is stored in `./data`.
 
@@ -140,6 +148,8 @@ Data (database, raw mail, attachments) is stored in `./data`.
 | Symptom | Cause / fix |
 |---|---|
 | Worker log shows `ingest 401` | `MC_HMAC_SECRET` in `.env` differs from the Worker's `HMAC_SECRET`. |
-| Worker log shows `ingest 404` / `530` | Tunnel down, wrong public hostname, or wrong `INGEST_URL`. Mail is kept in KV meanwhile. |
+| Worker log shows `ingest 404` / `530` | Tunnel down, wrong public hostname, or wrong `INGEST_URL`. Mail is kept in KV meanwhile and collected once fixed. |
+| App log: `permission denied` under `/data` | `./data` is not owned by `MC_UID`/`MC_GID`: `sudo chown -R <uid>:<gid> data`. |
+| `<app hostname>` shows another site or a 404 page | The tunnel has no public hostname yet, or an older DNS record for that name takes precedence. |
 | Sender gets `552 5.3.4 Email data size exceeded` | Message over 25 MiB after encoding. |
 | Verification email for a destination never arrives | Check spam; adding the same address again re-sends it (rate-limited). |

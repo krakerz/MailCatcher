@@ -12,6 +12,7 @@ send_email = [{ name = "SEND" }]
 kv_namespaces = [{ binding = "KV", id = "<kv namespace id>" }]
 
 [vars]
+# Fallback only: the app pushes its own URL (MC_PUBLIC_URL) and that wins.
 INGEST_URL = "https://<app hostname>/internal/ingest"
 
 # Secret (not in this file): npx wrangler secret put HMAC_SECRET

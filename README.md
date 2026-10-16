@@ -11,13 +11,13 @@ mailcatcher receives every email sent to any address on your domain through Clou
 *Work in progress — not all listed features exist yet:*
 
 - Catch-all inbox for a whole domain
-- Virtual inboxes with configurable address formats (e.g. `b.gmail`, `b=gmail.com`); the real recipient is decoded and shown
-- Web UI with login and user management
+- Virtual inboxes by address list or address format (e.g. `b.gmail`, `b=gmail.com`); the real recipient is decoded and shown
+- Web UI with login, light/dark theme and user management, including per-user inbox access
 - Reply, compose and forward to verified addresses
 - Destination-address management (Cloudflare API) from the UI, with a verified check before sending
-- Auto-forward rules
+- Auto-forward rules, applied by the Worker as mail arrives (also while the app is offline)
 - Test API with long-polling wait-for-message
-- Fallback storage in Workers KV when the app is offline
+- Nothing is lost while the app is offline: the Worker keeps mail in Workers KV and the app collects it when it is back
 
 ## Installation
 
@@ -26,7 +26,8 @@ Full walkthrough from zero (Cloudflare DNS, Email Routing, Worker, Tunnel, Docke
 Short version, once Cloudflare is set up:
 
 1. Copy `.env.example` to `.env` and fill in the values.
-2. Run `docker compose up -d`.
+2. Create the data folder as the user in `MC_UID`/`MC_GID`: `mkdir data`.
+3. Run `docker compose up -d --build`.
 
 ## Building from source
 
@@ -51,17 +52,22 @@ npx wrangler deploy
 
 ## Usage
 
-Open `https://<app hostname>` and log in. The inbox updates live as mail arrives; open a message to see its HTML (sandboxed, remote images blocked until you allow them), plain text, headers, links, verification codes and attachments.
+Open `https://<app hostname>` and log in. The inbox updates live as mail arrives (**Refresh** also collects anything still waiting at Cloudflare); unread mail is bold and counted in the sidebar, per user, with **Mark unread** and **Mark all read** for shared inboxes; tick messages to mark them read/unread or delete them; open a message to see its HTML (sandboxed, remote images blocked until you allow them), plain text, headers, links, verification codes and attachments.
 
 **Sending** (free plan: only to [verified destination addresses](docs/SETUP.md#2-enable-email-routing)):
 
 - **Reply** — from the catch-all address the mail was sent to (e.g. `b.gmail@<domain>`) to the original sender (its `Reply-To` if set), threaded and optionally quoting the original.
 - **Forward** — to a verified address with the original attached as `.eml`; replies go to the original sender, or back into mailcatcher if you choose.
 - **Compose** — pick an inbox and the real address to send as (`b@gmail.com`); it is sent from the matching catch-all address.
-- **Sent** lists everything sent, by whom; a message shows the replies and forwards sent from it.
+- Reply and compose have a basic rich editor (bold, italic, lists, quote, links, inline images — paste or pick them) and send HTML with a plain-text version; several attachments per mail, 18 MB in total.
+- **Sent** lists everything sent, by whom and from which inbox (filter per inbox, or the Sent tab of an inbox); a message shows the replies and forwards sent from it.
 - **Destinations** lists the verified addresses and lets anyone request verification for a new one (Cloudflare emails its owner a link); admins can remove addresses. A send to an unverified address offers that request right away, and the To fields suggest verified addresses.
 
-**Users** (admins only): add users, reset passwords, disable accounts, change roles. *Users* read mail (and later reply, compose and forward); *admins* also manage users and inboxes.
+**Forward rules**: forward incoming mail automatically to verified addresses, by inbox and/or catch-all address pattern (`*` wildcard). The Worker applies them as mail arrives, even when the app is offline; replies from the destination go straight to the original sender. The page has a box to test which rules an address hits, and messages show where they were auto-forwarded. Users manage the rules of the inboxes they can open; rules for "any inbox" need unrestricted access.
+
+**Users** (admins only): add users, reset passwords, disable accounts, change roles, and limit a user to some inboxes (none ticked = all). *Users* read, reply, compose and forward in the inboxes they can open; *admins* see everything and manage users, inboxes and rules.
+
+The interface has a light and a dark theme (follows the system by default; switch at the bottom of the sidebar) and works on phones.
 
 ### Inboxes and address formats
 
@@ -76,7 +82,11 @@ Mail to any address on the catch-all domain lands in an inbox. Each inbox has an
 
 Tokens: `{local}`, `{domain}`, `{name}` (domain without TLD), `{tld}`, `{inbox}`. Admins manage inboxes under **Inboxes**; the form shows a live preview and warns about ambiguous formats.
 
-Routing: inboxes are tried in priority order (lowest first) and the first whose domain and format match receives the mail; anything else goes to the default inbox. An inbox can also have its own domain (that domain needs its own Email Routing catch-all to the Worker). Changing formats affects new mail; **Re-apply routing** re-sorts stored mail.
+**One inbox per team or app:** give each inbox a slug and a format with the `{inbox}` marker, e.g. slug `team1` and `{inbox}-{domain}~{local}`: `b@gmail.com` is sent to as `team1-gmail.com~b@<domain>`, lands in that inbox and is shown as `b@gmail.com`; replies from MailCatcher come from that address, so the sending app can decode it back the same way.
+
+**Address lists** pin specific addresses to an inbox: one catch-all address per line, `*` as wildcard. For example Default (`{local}.{name}`), Inbox A with `b.gmail@<domain>`, Inbox C with `support@<domain>`: mail to `a.gmail@…` lands in Default, `b.gmail@…` in Inbox A (still shown as `b@gmail.com`), `support@…` in Inbox C.
+
+Routing order: inboxes with an address list (by priority, lowest first), then inboxes matched by domain and format (by priority), and the default inbox takes the rest. An inbox can also have its own domain (that domain needs its own Email Routing catch-all to the Worker). Changing formats affects new mail; **Re-apply routing** re-sorts stored mail.
 
 ### Test API
 
@@ -110,8 +120,11 @@ Tip: pass `since=<test start time>` so a test never picks up mail from an earlie
 | `MC_HMAC_SECRET` | — | Shared secret with the Worker, 32+ characters (required). |
 | `MC_CF_API_TOKEN` | — | Cloudflare token (Email Routing Addresses: Edit) to manage destination addresses from the app. |
 | `MC_CF_ACCOUNT_ID` | — | Cloudflare account ID for the above. |
+| `MC_PUBLIC_URL` | — | The app's public URL (tunnel hostname, e.g. `https://inbox.example.com`). Pushed to the Worker as the delivery target, so changing the hostname needs no Worker redeploy. |
 | `MC_WORKER_URL` | — | Worker URL for sending; empty disables reply/compose/forward. |
 | `MC_ADMIN_PASSWORD` | random | First admin's password, used on first start only. |
+| `MC_RETENTION_DAYS` | `30` | Delete messages older than this many days (checked hourly); `0` keeps everything. |
+| `MC_UID`, `MC_GID` | `1000` | Compose only: host user/group that owns `./data`. |
 | `MC_DATA_DIR` | `/data` | Database, raw mail and attachments. |
 | `MC_LISTEN` | `:8080` | Listen address. |
 | `MC_COOKIE_SECURE` | `true` | Set `false` only for plain-http local testing. |

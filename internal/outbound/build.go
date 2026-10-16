@@ -26,6 +26,8 @@ type Draft struct {
 	ReplyTo    string
 	Subject    string
 	Text       string
+	HTML       string   // optional rich body; Text is then its plain-text alternative
+	Inline     []Inline // images referenced from HTML as cid:
 	InReplyTo  string
 	References []string
 	Files      []File
@@ -59,6 +61,15 @@ func Build(d Draft, msgDomain string, now time.Time) ([]byte, error) {
 		m.SetGenHeaderPreformatted(gomail.HeaderReferences, strings.Join(d.References, " "))
 	}
 	m.SetBodyString(gomail.TypeTextPlain, d.Text)
+	if d.HTML != "" {
+		m.AddAlternativeString(gomail.TypeTextHTML, d.HTML)
+		for _, im := range d.Inline {
+			if err := m.EmbedReader(im.Name, bytes.NewReader(im.Data), gomail.WithFileContentID(im.ContentID),
+				gomail.WithFileContentType(gomail.ContentType(im.ContentType))); err != nil {
+				return nil, err
+			}
+		}
+	}
 	for _, f := range d.Files {
 		ct := f.ContentType
 		if ct == "" {

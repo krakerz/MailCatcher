@@ -3,8 +3,10 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -12,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"mailcatcher/internal/destinations"
 	"mailcatcher/internal/events"
 	"mailcatcher/internal/outbound"
+	"mailcatcher/internal/rules"
 	"mailcatcher/internal/store"
 )
 
@@ -39,6 +43,9 @@ type Server struct {
 	Domain       string // main catch-all domain
 	Mailer       *outbound.Mailer
 	Dest         *destinations.Service
+	Rules        *rules.Pusher
+	// Drain collects mail waiting in the Worker's KV (the inbox Refresh button).
+	Drain func(ctx context.Context) (int, error)
 
 	pages map[string]*template.Template
 }
@@ -52,6 +59,7 @@ func New(st *store.Store, b *events.Broker, domain string, cookieSecure bool) (*
 		CookieSecure: cookieSecure,
 		pages:        map[string]*template.Template{},
 	}
+	assetVersion = staticHash()
 	names, err := fs.Glob(assets, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -90,6 +98,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /{$}", s.user(s.home))
 	mux.Handle("GET /inbox/{id}", s.user(s.inboxPage))
 	mux.Handle("GET /inbox/{id}/rows", s.user(s.inboxRows))
+	mux.Handle("POST /inbox/{id}/read", s.user(s.inboxMarkRead))
+	mux.Handle("POST /refresh", s.user(s.refresh))
+	mux.Handle("POST /m/{id}/unread", s.user(s.messageUnread))
+	mux.Handle("POST /messages/bulk", s.user(s.messagesBulk))
 	mux.Handle("GET /events", s.user(s.events))
 	mux.Handle("GET /m/{id}", s.user(s.messagePage))
 	mux.Handle("GET /m/{id}/body", s.user(s.messageBody))
@@ -118,6 +130,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("POST /admin/inboxes/{id}", s.admin(s.inboxUpdate))
 	mux.Handle("POST /admin/inboxes/{id}/apikey", s.admin(s.inboxAPIKey))
 	mux.Handle("GET /admin/format-preview", s.admin(s.formatPreview))
+	mux.Handle("GET /rules", s.user(s.rulesPage))
+	mux.Handle("POST /rules", s.user(s.ruleCreate))
+	mux.Handle("POST /rules/push", s.user(s.rulesPush))
+	mux.Handle("POST /rules/{id}", s.user(s.ruleUpdate))
 }
 
 type ctxKey struct{}
@@ -125,6 +141,34 @@ type ctxKey struct{}
 type reqCtx struct {
 	User    *store.User
 	Session *store.Session
+	// Allowed lists the inboxes a restricted user may open; nil = all (admins always).
+	Allowed []int64
+}
+
+// canManageRule: rules for "any inbox" (0) need unrestricted access.
+func (c *reqCtx) canManageRule(inboxID int64) bool {
+	if inboxID == 0 {
+		return c.Allowed == nil
+	}
+	return c.canSee(inboxID)
+}
+
+func (c *reqCtx) canSee(inboxID int64) bool {
+	return c.Allowed == nil || slices.Contains(c.Allowed, inboxID)
+}
+
+// visible filters inboxes down to the ones the user may open.
+func (c *reqCtx) visible(list []*store.Inbox) []*store.Inbox {
+	if c.Allowed == nil {
+		return list
+	}
+	var out []*store.Inbox
+	for _, in := range list {
+		if c.canSee(in.ID) {
+			out = append(out, in)
+		}
+	}
+	return out
 }
 
 func current(r *http.Request) *reqCtx {
@@ -188,7 +232,17 @@ func (s *Server) session(r *http.Request) (*reqCtx, error) {
 	if u.Disabled {
 		return nil, errors.New("user disabled")
 	}
-	return &reqCtx{User: u, Session: sess}, nil
+	c := &reqCtx{User: u, Session: sess}
+	if !u.IsAdmin() {
+		ids, err := s.Store.UserInboxIDs(r.Context(), u.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) > 0 {
+			c.Allowed = ids
+		}
+	}
+	return c, nil
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
@@ -221,6 +275,13 @@ func SecurityHeaders(h http.Handler) http.Handler {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		hd.Set("X-Content-Type-Options", "nosniff")
+		// no-transform stops Cloudflare from injecting its analytics beacon and rewriting
+		// email addresses (Email Obfuscation) in pages; mail is never cached anywhere.
+		if strings.HasPrefix(r.URL.Path, "/static/") {
+			hd.Set("Cache-Control", "public, max-age=300, no-transform")
+		} else {
+			hd.Set("Cache-Control", "private, no-store, no-transform")
+		}
 		// Not no-referrer: Chrome then sends "Origin: null" on form posts, breaking the login Origin check.
 		hd.Set("Referrer-Policy", "same-origin")
 		h.ServeHTTP(w, r)
@@ -228,16 +289,22 @@ func SecurityHeaders(h http.Handler) http.Handler {
 }
 
 type page struct {
-	Title string
-	User  *store.User
-	CSRF  string
-	Data  any
+	Title     string
+	User      *store.User
+	CSRF      string
+	Data      any
+	Nav       []*store.Inbox // sidebar
+	NavUnread map[int64]int  // unread messages per sidebar inbox
+	Path      string         // current path, for the active sidebar entry
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
-	p := page{Title: title, Data: data}
+	p := page{Title: title, Data: data, Path: r.URL.Path}
 	if c := current(r); c != nil {
 		p.User, p.CSRF = c.User, c.Session.CSRF
+		all, _ := s.Store.ListInboxes(r.Context())
+		p.Nav = c.visible(all)
+		p.NavUnread, _ = s.Store.UnreadCounts(r.Context(), c.User)
 	}
 	t, ok := s.pages[name]
 	if !ok {
@@ -270,4 +337,20 @@ func safeNext(next string) string {
 		return "/"
 	}
 	return next
+}
+
+// assetVersion busts browser caches of /static/* whenever the bundled files change.
+var assetVersion string
+
+func staticHash() string {
+	h := sha256.New()
+	fs.WalkDir(assets, "static", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := assets.ReadFile(path)
+			h.Write([]byte(path))
+			h.Write(b)
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:10]
 }

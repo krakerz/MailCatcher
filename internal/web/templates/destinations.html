@@ -1,17 +1,17 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$d := .Data}}{{$admin := .User.IsAdmin}}
-<div class="bar">
+<div class="page-head">
   <h1>Destination addresses</h1>
   {{if $d.Enabled}}
   <form method="post" action="/destinations/sync" class="inline">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button class="small secondary">Refresh from Cloudflare</button>
+    <button class="small secondary">{{icon "refresh-cw"}} Refresh from Cloudflare</button>
   </form>
   {{end}}
 </div>
-<p class="muted">On the free plan mailcatcher can only send to verified destination addresses. Adding an address makes Cloudflare email a verification link <b>to that address</b>; its owner has to click it. The list syncs every 5 minutes.</p>
-{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
-{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+<p class="muted">On the free plan MailCatcher can only send to verified destination addresses. Adding an address makes Cloudflare email a verification link <b>to that address</b>; its owner has to click it. The list syncs every 5 minutes.</p>
+{{with $d.Notice}}<p class="notice">{{icon "circle-check"}}<span>{{.}}</span></p>{{end}}
+{{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{if not $d.Enabled}}<p class="error">Managing addresses from here needs <code>MC_CF_API_TOKEN</code> and <code>MC_CF_ACCOUNT_ID</code>. Until then, add them in the Cloudflare dashboard (Email Routing → Destination addresses).</p>{{end}}
 
 <table class="list">
@@ -50,7 +50,7 @@
   <h2>Add address</h2>
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <div class="row">
-    <label class="grow">Email <input name="email" type="email" required placeholder="tester@gmail.com"></label>
+    <label class="grow">Email <input name="email" type="email" required placeholder="any@example.com"></label>
     <button>Send verification link</button>
   </div>
 </form>

@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"mailcatcher/internal/auth"
@@ -10,9 +11,11 @@ import (
 )
 
 type usersData struct {
-	Users  []*store.User
-	Notice string // e.g. a generated password, shown once
-	Error  string
+	Users   []*store.User
+	Inboxes []*store.Inbox
+	Access  map[int64][]int64 // user id → inbox ids; missing = all inboxes
+	Notice  string            // e.g. a generated password, shown once
+	Error   string
 }
 
 func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, d usersData) {
@@ -20,6 +23,21 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, d usersData
 	if d.Users, err = s.Store.ListUsers(r.Context()); err != nil {
 		s.fail(w, err)
 		return
+	}
+	if d.Inboxes, err = s.Store.ListInboxes(r.Context()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	d.Access = map[int64][]int64{}
+	for _, u := range d.Users {
+		ids, err := s.Store.UserInboxIDs(r.Context(), u.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if len(ids) > 0 {
+			d.Access[u.ID] = ids
+		}
 	}
 	if d.Error != "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -58,6 +76,10 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 			s.renderUsers(w, r, usersData{Error: "That username is taken."})
 			return
 		}
+		s.fail(w, err)
+		return
+	}
+	if err := s.Store.SetUserInboxes(r.Context(), u.ID, formIDs(r, "inbox")); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -105,6 +127,13 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		u.Role = role
+	case "inboxes":
+		if err := s.Store.SetUserInboxes(r.Context(), u.ID, formIDs(r, "inbox")); err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.renderUsers(w, r, usersData{Notice: "Saved inbox access for " + u.Username + "."})
+		return
 	case "reset":
 		pw := auth.Token(12)
 		if u.PasswordHash, err = auth.HashPassword(pw); err != nil {
@@ -125,4 +154,15 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 		s.Store.DeleteUserSessions(r.Context(), u.ID, "")
 	}
 	s.renderUsers(w, r, usersData{Notice: notice})
+}
+
+// formIDs reads repeated numeric form values (checkboxes).
+func formIDs(r *http.Request, name string) []int64 {
+	var out []int64
+	for _, v := range r.PostForm[name] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
 }

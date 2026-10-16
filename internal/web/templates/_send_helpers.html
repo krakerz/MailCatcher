@@ -8,6 +8,28 @@
 {{end}}
 {{end}}
 
-{{define "verified_list"}}
-<datalist id="verified-destinations">{{range .}}<option value="{{.}}"></option>{{end}}</datalist>
+{{define "dest_field"}}
+{{/* dot: dict Name, Value, List (verified addresses) */}}
+{{if .List}}{{$v := .Value}}
+<select name="{{.Name}}" required>
+  <option value="">Choose a verified address…</option>
+  {{range .List}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}
+</select>
+{{else}}
+<input name="{{.Name}}" type="email" value="{{.Value}}" required placeholder="any@example.com">
+<span class="muted">No verified addresses known yet — add them under <a href="/destinations">Destinations</a>.</span>
+{{end}}
+{{end}}
+
+{{define "bulkbar"}}
+{{/* dot: dict CSRF, Back, Read (bool: offer read/unread) */}}
+<form id="bulk" method="post" action="/messages/bulk" class="bulkbar" data-bulk>
+  <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="{{.Back}}">
+  <label class="check"><input type="checkbox" data-bulk-all aria-label="Select all"> <span data-bulk-count>Select</span></label>
+  {{if .Read}}
+  <button class="secondary small" name="action" value="read" disabled>{{icon "mail-open"}} Mark read</button>
+  <button class="secondary small" name="action" value="unread" disabled>{{icon "mail"}} Mark unread</button>
+  {{end}}
+  <button class="danger small" name="action" value="delete" disabled data-confirm="Delete the selected messages? This cannot be undone.">{{icon "trash-2"}} Delete</button>
+</form>
 {{end}}

@@ -15,10 +15,10 @@ import (
 
 // Presets offered in the UI.
 var Presets = []struct{ Template, Example string }{
-	{"{local}.{name}", "b.gmail — Mailosaur style, needs an assumed TLD"},
-	{"{local}={domain}", "b=gmail.com"},
-	{"{local}+{domain}", "b+gmail.com"},
-	{"{inbox}-{local}={domain}", "team1-b=gmail.com — inbox marker, several inboxes on one domain"},
+	{"{local}.{name}", "any.example — Mailosaur style, needs an assumed TLD"},
+	{"{local}={domain}", "any=example.com"},
+	{"{local}+{domain}", "any+example.com"},
+	{"{inbox}-{local}={domain}", "team1-any=example.com — inbox marker, several inboxes on one domain"},
 }
 
 var tokenRe = regexp.MustCompile(`\{[a-z]+\}`)
@@ -37,8 +37,13 @@ type Format struct {
 	Slug       string
 
 	re     *regexp.Regexp
+	src    string   // unanchored local-part pattern, RE2/JavaScript-compatible
 	groups []string // token per capture group, in order
 }
+
+// Pattern is the local-part regex without anchors or flags; it uses only syntax
+// shared by RE2 and JavaScript, so the Worker can evaluate it (case-insensitively).
+func (f *Format) Pattern() string { return f.src }
 
 func Compile(template, assumedTLD, slug string) (*Format, error) {
 	template = strings.TrimSpace(strings.ToLower(template))
@@ -93,6 +98,7 @@ func Compile(template, assumedTLD, slug string) (*Format, error) {
 	case seen["{name}"] && !seen["{tld}"] && f.AssumedTLD == "":
 		return nil, errors.New("{name} without {tld} needs an assumed TLD (e.g. com)")
 	}
+	f.src = strings.TrimSuffix(strings.TrimPrefix(pat.String(), "^"), "$")
 	var err error
 	if f.re, err = regexp.Compile("(?i)" + pat.String()); err != nil {
 		return nil, err
@@ -161,7 +167,7 @@ func (f *Format) Encode(real string) (string, error) {
 	if strings.Contains(f.Template, "{name}") {
 		switch {
 		case len(labels) != 2:
-			return "", doesNotFit(real, "{name} formats only cover two-part domains like gmail.com")
+			return "", doesNotFit(real, "{name} formats only cover two-part domains like example.com")
 		case !strings.Contains(f.Template, "{tld}") && labels[1] != f.AssumedTLD:
 			return "", doesNotFit(real, "this format only covers .%s addresses (assumed TLD)", f.AssumedTLD)
 		}
@@ -187,9 +193,31 @@ func (f *Format) Warnings() []string {
 		}
 	}
 	if strings.Contains(f.Template, "{name}") && !strings.Contains(f.Template, "{tld}") {
-		out = append(out, fmt.Sprintf("Only addresses at <name>.%s domains can be represented (e.g. gmail.%s); others such as yahoo.co.id cannot.", f.AssumedTLD, f.AssumedTLD))
+		out = append(out, fmt.Sprintf("Only addresses at <name>.%s domains can be represented (e.g. example.%s); others such as example.co.id cannot.", f.AssumedTLD, f.AssumedTLD))
 	}
 	return out
+}
+
+// PrefixWarning flags an address list whose fixed prefix (e.g. "team1-" in
+// "team1-*@…") the format does not produce: the prefix would then end up in
+// the decoded address. It suggests the {inbox} form when the prefix is the slug.
+func (f *Format) PrefixWarning(globs []string) string {
+	for _, g := range globs {
+		local, _, ok := Split(g)
+		if !ok {
+			continue
+		}
+		prefix, _, wild := strings.Cut(strings.ToLower(local), "*")
+		if !wild || prefix == "" || strings.HasPrefix(strings.ReplaceAll(f.Template, "{inbox}", f.Slug), prefix) {
+			continue
+		}
+		hint := ""
+		if strings.TrimRight(prefix, "-._+~=") == f.Slug {
+			hint = fmt.Sprintf(" Put it in the format instead, e.g. %q, and the address list is not needed.", "{inbox}"+prefix[len(f.Slug):]+f.Template)
+		}
+		return fmt.Sprintf("Addresses here start with %q, but the format does not, so %q would be decoded as part of the real address.%s", prefix, prefix, hint)
+	}
+	return ""
 }
 
 // Split returns the local part and lower-cased domain of an address.

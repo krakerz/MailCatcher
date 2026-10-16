@@ -1,10 +1,10 @@
 {{define "inbox_form"}}
 {{/* dot: map with Inbox, Domain, Presets */}}
 <div class="row">
-  <label>Name <input name="name" value="{{.Inbox.Name}}" required></label>
+  <label>Name <input name="name" value="{{.Inbox.Name}}" required data-preview-name></label>
   <label>Slug <input name="slug" value="{{.Inbox.Slug}}" required pattern="[a-z0-9][a-z0-9\-]{0,30}" data-preview-slug></label>
   <label>Own domain <span class="muted">(optional)</span> <input name="domain" value="{{.Inbox.Domain}}" placeholder="{{.Domain}}" data-preview-domain></label>
-  <label>Priority <input name="priority" type="number" value="{{.Inbox.Priority}}" class="short"></label>
+  <label>Priority <input name="priority" type="number" value="{{.Inbox.Priority}}" class="short" data-preview-priority></label>
 </div>
 <div class="row">
   <label class="grow">Address format
@@ -12,11 +12,18 @@
   </label>
   <label data-tld-field>Assumed TLD <input name="tld" value="{{.Inbox.AssumedTLD}}" class="short" data-preview-tld></label>
 </div>
-<p class="muted" data-tld-field>{name} drops the TLD, so <code>b.gmail</code> is read back as <code>b@gmail.<span data-tld-echo>{{.Inbox.AssumedTLD}}</span></code>. One inbox covers one TLD; for mixed domains use a <code>{domain}</code> format.</p>
+<p class="muted" data-tld-field>{name} drops the TLD, so <code>any.example</code> is read back as <code>any@example.<span data-tld-echo>{{.Inbox.AssumedTLD}}</span></code>. One inbox covers one TLD; for mixed domains use a <code>{domain}</code> format.</p>
+<label>Addresses <span class="muted">(optional — one catch-all address per line, * wildcard. When set, this inbox receives only these addresses, before any format-based inbox; the format then only shows the real address.)</span>
+  <textarea name="addresses" rows="3" class="mono" placeholder="any.example@{{.Domain}}&#10;any-*@{{.Domain}}">{{range .Inbox.Addresses}}{{.}}
+{{end}}</textarea>
+</label>
 <datalist id="format-presets">{{range .Presets}}<option value="{{.Template}}">{{.Example}}</option>{{end}}</datalist>
-<p class="muted">Tokens: <code>{local}</code> <code>{domain}</code> <code>{name}</code> (domain without TLD) <code>{tld}</code> <code>{inbox}</code> (this slug). An inbox without its own domain receives on <b>{{.Domain}}</b>; only one inbox per domain should lack an <code>{inbox}</code> marker.</p>
-<div class="preview" data-preview>
-  <label>Preview with <input value="b@gmail.com" data-preview-address></label>
-  <div class="mono" data-preview-out></div>
+<p class="muted">Tokens: <code>{local}</code> <code>{domain}</code> <code>{name}</code> (domain without TLD) <code>{tld}</code> <code>{inbox}</code> (this slug). An inbox without its own domain receives on <b>{{.Domain}}</b>. Inboxes on the same domain are told apart by an address list or an <code>{inbox}</code> marker; the default inbox takes everything else.</p>
+<div class="preview" data-preview data-inbox-id="{{.Inbox.ID}}">
+  <div class="preview-label">Preview with</div>
+  <div class="preview-row">
+    <input value="any@example.com" data-preview-address aria-label="Example real address">
+    <div class="mono" data-preview-out></div>
+  </div>
 </div>
 {{end}}

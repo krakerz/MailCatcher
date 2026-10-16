@@ -264,6 +264,7 @@ type summaryJSON struct {
 	Links        []string            `json:"links"`
 	Codes        []string            `json:"codes"`
 	Attachments  int                 `json:"attachment_count"`
+	AutoForward  []string            `json:"auto_forwarded"`
 }
 
 type attachmentJSON struct {
@@ -299,7 +300,7 @@ func summary(m *store.Message) summaryJSON {
 		EnvelopeFrom: m.EnvelopeFrom, EnvelopeTo: m.EnvelopeTo, DecodedTo: m.DecodedTo,
 		From: m.From, To: nonNil(m.To), Cc: nonNil(m.Cc), Subject: m.Subject,
 		ReceivedAt: m.ReceivedAt, Size: m.Size, Links: nonNil(m.Links), Codes: nonNil(m.Codes),
-		Attachments: m.AttachmentCount,
+		Attachments: m.AttachmentCount, AutoForward: nonNil(m.AutoForwarded),
 	}
 	if !m.Date.IsZero() {
 		d := m.Date
@@ -338,6 +339,8 @@ func (a *API) sendFailed(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, outbound.ErrNotVerified):
 		jsonErr(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, outbound.ErrNotActive):
+		jsonErr(w, http.StatusServiceUnavailable, err.Error()+"; retry in a minute")
 	case errors.Is(err, outbound.ErrDisabled):
 		jsonErr(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, outbound.ErrUnsupportedAddress):

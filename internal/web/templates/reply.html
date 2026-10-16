@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}{{$m := $d.M}}
-<p class="crumbs"><a href="/m/{{$m.ID}}">← {{orNone $m.Subject}}</a></p>
+<p class="crumbs"><a href="/m/{{$m.ID}}">{{icon "arrow-left"}} {{orNone $m.Subject}}</a></p>
 <h1>Reply</h1>
-{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{template "unverified" $d.Unverified}}
 <form method="post" action="/m/{{$m.ID}}/reply" enctype="multipart/form-data" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -11,7 +11,7 @@
     <tr><th>To</th><td class="mono">{{$d.To}}</td></tr>
     <tr><th>Subject</th><td>{{$d.Subject}}</td></tr>
   </table>
-  <label>Message <textarea name="text" rows="10" autofocus>{{$d.Text}}</textarea></label>
+  <div class="field"><span class="field-label">Message</span><textarea name="text" rows="10" autofocus data-rich data-html="{{$d.HTML}}" aria-label="Message">{{$d.Text}}</textarea></div>
   <label class="check"><input type="checkbox" name="quote" value="1"{{if $d.Quote}} checked{{end}}> Quote the original message</label>
   <label>Attachments <input type="file" name="files" multiple></label>
   <button>Send reply</button>

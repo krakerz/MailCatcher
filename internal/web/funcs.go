@@ -2,14 +2,49 @@ package web
 
 import (
 	"fmt"
+	"hash/fnv"
 	"html/template"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"mailcatcher/internal/mailparse"
 )
 
+var iconName = regexp.MustCompile(`^[a-z0-9-]+$`)
+
 var funcs = template.FuncMap{
+	// icon renders a Lucide icon from /static/icons.svg.
+	"icon": func(name string) template.HTML {
+		if !iconName.MatchString(name) {
+			return ""
+		}
+		return template.HTML(`<svg class="icon" aria-hidden="true"><use href="/static/icons.svg?v=` + assetVersion + `#` + name + `"></use></svg>`)
+	},
+	// initial is the avatar letter for a sender.
+	"initial": func(name, addr string) string {
+		for _, s := range []string{name, addr} {
+			for _, r := range strings.TrimSpace(s) {
+				if unicode.IsLetter(r) || unicode.IsDigit(r) {
+					return strings.ToUpper(string(r))
+				}
+			}
+		}
+		return "?"
+	},
+	// hue picks one of 12 avatar colour classes (.h0–.h11), stable per sender;
+	// classes because the CSP forbids inline style attributes.
+	"hue": func(s string) int {
+		h := fnv.New32a()
+		h.Write([]byte(strings.ToLower(s)))
+		return int(h.Sum32() % 12)
+	},
+	"hasPrefix": strings.HasPrefix,
+	"hasID":     func(ids []int64, id int64) bool { return slices.Contains(ids, id) },
+	// asset is a cache-busted /static URL.
+	"asset": func(name string) string { return "/static/" + name + "?v=" + assetVersion },
 	"when": func(t time.Time) string {
 		if t.IsZero() {
 			return "—"

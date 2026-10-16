@@ -3,27 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} · mailcatcher</title>
-<link rel="stylesheet" href="/static/style.css">
-<script src="/static/app.js" defer></script>
+<title>{{.Title}} · MailCatcher</title>
+<link rel="icon" href="{{asset "logo.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "style.css"}}">
+<script src="{{asset "theme.js"}}"></script>
+<script src="{{asset "app.js"}}" defer></script>
 </head>
 <body data-csrf="{{.CSRF}}">
 {{if .User}}
-<header class="top">
-  <a class="brand" href="/">mailcatcher</a>
-  <nav>
-    <a href="/compose">Compose</a><a href="/sent">Sent</a><a href="/destinations">Destinations</a>
-    {{if .User.IsAdmin}}<a href="/admin/inboxes">Inboxes</a><a href="/admin/users">Users</a>{{end}}
-    <a href="/account/password">{{.User.Username}}</a>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="link">Log out</button>
-    </form>
-  </nav>
-</header>
-{{end}}
-<main>
+<div class="shell" data-shell>
+  <aside class="sidebar">
+    <a class="brand" href="/"><img src="{{asset "logo.svg"}}" alt="">MailCatcher</a>
+    <a class="button compose-btn" href="/compose">{{icon "square-pen"}} Compose</a>
+    <nav class="nav">
+      <div class="nav-label">Inboxes</div>
+      {{$path := .Path}}
+      {{range .Nav}}
+      <a href="/inbox/{{.ID}}"{{if eq $path (printf "/inbox/%d" .ID)}} class="active"{{end}}>{{icon "inbox"}} {{.Name}}{{with index $.NavUnread .ID}}<span class="count">{{.}}</span>{{end}}</a>
+      {{end}}
+      <div class="nav-label">Mail</div>
+      <a href="/sent"{{if eq .Path "/sent"}} class="active"{{end}}>{{icon "send"}} Sent</a>
+      <a href="/rules"{{if hasPrefix .Path "/rules"}} class="active"{{end}}>{{icon "split"}} Forward rules</a>
+      <a href="/destinations"{{if eq .Path "/destinations"}} class="active"{{end}}>{{icon "mail-check"}} Destinations</a>
+      {{if .User.IsAdmin}}
+      <div class="nav-label">Admin</div>
+      <a href="/admin/inboxes"{{if hasPrefix .Path "/admin/inboxes"}} class="active"{{end}}>{{icon "settings"}} Inboxes</a>
+      <a href="/admin/users"{{if hasPrefix .Path "/admin/users"}} class="active"{{end}}>{{icon "users"}} Users</a>
+      {{end}}
+    </nav>
+    <div class="sidebar-foot">
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="system" title="System theme">{{icon "monitor"}}</button>
+        <button type="button" data-theme-set="light" title="Light">{{icon "sun"}}</button>
+        <button type="button" data-theme-set="dark" title="Dark">{{icon "moon"}}</button>
+      </div>
+      <a class="me" href="/account/password" title="Change password">
+        <span class="avatar h{{hue .User.Username}}">{{initial .User.Username ""}}</span>
+        <span>{{.User.Username}}<small>{{if .User.IsAdmin}}Admin{{else}}User{{end}}</small></span>
+      </a>
+      <form method="post" action="/logout" class="nav">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button class="link">{{icon "log-out"}} Log out</button>
+      </form>
+    </div>
+  </aside>
+  <div class="scrim" data-nav-close></div>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="secondary small" data-nav-toggle aria-label="Menu">{{icon "menu"}}</button>
+      <img src="{{asset "logo.svg"}}" alt=""><b>MailCatcher</b>
+    </header>
+    <main class="content">
+{{template "content" .}}
+    </main>
+  </div>
+</div>
+{{else}}
+<main class="content">
 {{template "content" .}}
 </main>
+{{end}}
 </body>
 </html>

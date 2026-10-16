@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,12 +19,16 @@ import (
 	"mailcatcher/internal/events"
 	"mailcatcher/internal/ingest"
 	"mailcatcher/internal/outbound"
+	"mailcatcher/internal/rules"
 	"mailcatcher/internal/store"
 	"mailcatcher/internal/version"
 	"mailcatcher/internal/web"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config", "err", err)
@@ -50,7 +56,8 @@ func main() {
 	mailer := &outbound.Mailer{Store: st, Domain: cfg.Domain, Sender: &outbound.Sender{WorkerURL: cfg.WorkerURL, Secret: cfg.HMACSecret}}
 	dest := &destinations.Service{Store: st, CF: &cloudflare.Client{Token: cfg.CFAPIToken, AccountID: cfg.CFAccountID}}
 	mailer.Verified = dest.Verified
-	ui.Mailer, ui.Dest = mailer, dest
+	pusher := &rules.Pusher{Store: st, Sender: mailer.Sender, Domain: cfg.Domain, PublicURL: cfg.PublicURL}
+	ui.Mailer, ui.Dest, ui.Rules = mailer, dest, pusher
 	if !dest.Enabled() {
 		slog.Warn("MC_CF_API_TOKEN / MC_CF_ACCOUNT_ID not set: destination addresses cannot be managed from the app")
 	}
@@ -59,8 +66,9 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /internal/ingest", &ingest.Handler{Store: st, Secret: cfg.HMACSecret, Domain: cfg.Domain,
-		OnStored: func(m *store.Message) { broker.Publish(events.Event{MessageID: m.ID, InboxID: m.InboxID}) }})
+	ingestHandler := &ingest.Handler{Store: st, Secret: cfg.HMACSecret, Domain: cfg.Domain,
+		OnStored: func(m *store.Message) { broker.Publish(events.Event{MessageID: m.ID, InboxID: m.InboxID}) }}
+	mux.Handle("POST /internal/ingest", ingestHandler)
 	(&api.API{Store: st, Broker: broker, Mailer: mailer}).Register(mux)
 	ui.Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -85,9 +93,59 @@ func main() {
 	}()
 
 	go dest.Run(ctx)
+	drainer := &ingest.Drainer{Handler: ingestHandler, Worker: mailer.Sender}
+	if cfg.WorkerURL != "" {
+		ui.Drain = drainer.Drain
+	}
+	go drainer.Run(ctx)
+	go retention(ctx, st, cfg.RetentionDays)
+	go pusher.Run(ctx)
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdownCtx)
+}
+
+// retention deletes old mail hourly; days == 0 keeps everything.
+func retention(ctx context.Context, st *store.Store, days int) {
+	if days == 0 {
+		return
+	}
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if n, err := st.Purge(ctx, time.Now().AddDate(0, 0, -days)); err != nil && ctx.Err() == nil {
+			slog.Warn("retention", "err", err)
+		} else if n > 0 {
+			slog.Info("retention: deleted old messages", "count", n, "older_than_days", days)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// healthcheck is the Docker HEALTHCHECK (the image has no shell or curl).
+func healthcheck() int {
+	addr := os.Getenv("MC_LISTEN")
+	if addr == "" {
+		addr = ":8080"
+	}
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	res, err := c.Get("http://" + addr + "/healthz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }

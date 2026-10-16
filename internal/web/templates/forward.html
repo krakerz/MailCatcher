@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}{{$m := $d.M}}
-<p class="crumbs"><a href="/m/{{$m.ID}}">← {{orNone $m.Subject}}</a></p>
+<p class="crumbs"><a href="/m/{{$m.ID}}">{{icon "arrow-left"}} {{orNone $m.Subject}}</a></p>
 <h1>Forward</h1>
-{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{template "unverified" $d.Unverified}}
 <form method="post" action="/m/{{$m.ID}}/forward" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -10,16 +10,15 @@
     <tr><th>From</th><td class="mono">{{$m.EnvelopeTo}}</td></tr>
     <tr><th>Subject</th><td>Fwd: {{$m.Subject}}</td></tr>
   </table>
-  <label>To <span class="muted">(must be a verified destination address)</span> <input name="to" type="email" value="{{$d.To}}" required autofocus list="verified-destinations" autocomplete="off"></label>
+  <label>To <span class="muted">(verified destination address)</span> {{template "dest_field" (dict "Name" "to" "Value" $d.To "List" $d.Verified)}}</label>
   <label>Note <span class="muted">(optional, above the forwarded message)</span> <textarea name="note" rows="4">{{$d.Note}}</textarea></label>
   <fieldset>
     <legend>Replies to this forward go to</legend>
     <label class="check"><input type="radio" name="reply_back" value="0"{{if not $d.ReplyBack}} checked{{end}}> the original sender <span class="mono muted">{{$d.Sender}}</span></label>
-    <label class="check"><input type="radio" name="reply_back" value="1"{{if $d.ReplyBack}} checked{{end}}> back into mailcatcher <span class="mono muted">{{$m.EnvelopeTo}}</span></label>
+    <label class="check"><input type="radio" name="reply_back" value="1"{{if $d.ReplyBack}} checked{{end}}> back into MailCatcher <span class="mono muted">{{$m.EnvelopeTo}}</span></label>
   </fieldset>
   <p class="muted">The original is attached as <code>original.eml</code>.</p>
   <button>Forward</button>
 </form>
-{{template "verified_list" $d.Verified}}
 {{template "original" $m}}
 {{end}}

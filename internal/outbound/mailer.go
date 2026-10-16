@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"os"
 	"strings"
@@ -31,14 +32,17 @@ var ErrUnsupportedAddress = address.ErrUnsupported
 const MaxUpload = 18 << 20
 
 func (m *Mailer) send(ctx context.Context, d Draft, inboxID int64, parentID, sentBy *int64, decoded string) (*store.Message, error) {
+	checked := false
 	if m.Verified != nil {
 		ok, err := m.Verified(ctx, d.To)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
+			slog.Warn("send refused: recipient not verified (local list)", "to", d.To)
 			return nil, ErrNotVerified
 		}
+		checked = true
 	}
 	fromAddr, err := mail.ParseAddress(d.From)
 	if err != nil {
@@ -51,6 +55,10 @@ func (m *Mailer) send(ctx context.Context, d Draft, inboxID int64, parentID, sen
 	}
 	id, err := m.Sender.Send(ctx, fromAddr.Address, d.To, raw)
 	if err != nil {
+		slog.Warn("send failed", "to", d.To, "err", err)
+		if errors.Is(err, ErrNotVerified) && checked {
+			return nil, ErrNotActive
+		}
 		return nil, err
 	}
 	raw = ReplaceMessageID(raw, id)
@@ -113,6 +121,7 @@ func attribution(orig *store.Message) string {
 
 type ReplyOptions struct {
 	Text   string
+	HTML   string // rich body from the editor (sanitized here); empty = plain text
 	Quote  bool
 	Files  []File
 	SentBy *int64
@@ -124,8 +133,19 @@ func (m *Mailer) Reply(ctx context.Context, orig *store.Message, o ReplyOptions)
 		return nil, errors.New("the original has no recipient to reply from")
 	}
 	body := o.Text
+	var rich *RichBody
+	if strings.TrimSpace(o.HTML) != "" {
+		var err error
+		if rich, err = PrepareHTML(o.HTML, m.Domain); err != nil {
+			return nil, err
+		}
+		body = rich.Text
+	}
 	if o.Quote && strings.TrimSpace(orig.Text) != "" {
 		body = strings.TrimRight(body, "\n") + "\n\n" + Quote(attribution(orig), orig.Text)
+		if rich != nil {
+			rich.HTML += QuoteHTML(attribution(orig), orig.Text)
+		}
 	}
 	refs := append([]string{}, orig.References...)
 	if orig.MessageID != "" {
@@ -139,6 +159,9 @@ func (m *Mailer) Reply(ctx context.Context, orig *store.Message, o ReplyOptions)
 		InReplyTo:  orig.MessageID,
 		References: refs,
 		Files:      o.Files,
+	}
+	if rich != nil {
+		d.HTML, d.Inline = rich.HTML, rich.Inline
 	}
 	return m.send(ctx, d, orig.InboxID, &orig.ID, o.SentBy, orig.DecodedTo)
 }
@@ -205,6 +228,7 @@ type ComposeOptions struct {
 	To       string
 	Subject  string
 	Text     string
+	HTML     string // rich body from the editor; empty = plain text
 	Files    []File
 	SentBy   *int64
 }
@@ -239,5 +263,12 @@ func (m *Mailer) Compose(ctx context.Context, o ComposeOptions) (*store.Message,
 		return nil, err
 	}
 	d := Draft{From: from, To: strings.TrimSpace(o.To), Subject: o.Subject, Text: o.Text, Files: o.Files}
+	if strings.TrimSpace(o.HTML) != "" {
+		rich, err := PrepareHTML(o.HTML, m.Domain)
+		if err != nil {
+			return nil, err
+		}
+		d.Text, d.HTML, d.Inline = rich.Text, rich.HTML, rich.Inline
+	}
 	return m.send(ctx, d, in.ID, nil, o.SentBy, decoded)
 }

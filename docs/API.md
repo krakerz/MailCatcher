@@ -70,13 +70,14 @@ Example response:
       "size": 5230,
       "links": ["https://example.com/verify?token=abc"],
       "codes": ["493017"],
-      "attachment_count": 0
+      "attachment_count": 0,
+      "auto_forwarded": []
     }
   ]
 }
 ```
 
-Notes on the fields: `decoded_to` is omitted when empty. `name` inside an address is omitted when empty. `date` is `null` when the message has no `Date` header. `attachment_count` counts non-inline attachments only.
+Notes on the fields: `decoded_to` is omitted when empty. `name` inside an address is omitted when empty. `date` is `null` when the message has no `Date` header. `attachment_count` counts non-inline attachments only. `auto_forwarded` lists the addresses the Worker forwarded an incoming message to by a forward rule.
 
 Errors: `400` (invalid `direction`, `since`, `limit` or `wait`), `401`, `403`, `500`.
 
@@ -219,7 +220,8 @@ Example response:
   "size": 1914,
   "links": [],
   "codes": [],
-  "attachment_count": 0
+  "attachment_count": 0,
+  "auto_forwarded": []
 }
 ```
 
@@ -281,7 +283,8 @@ Example response:
   "size": 6021,
   "links": [],
   "codes": [],
-  "attachment_count": 1
+  "attachment_count": 1,
+  "auto_forwarded": []
 }
 ```
 

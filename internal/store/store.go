@@ -132,6 +132,34 @@ var migrations = []string{
 		created_at  INTEGER NOT NULL,
 		synced_at   INTEGER NOT NULL
 	);`,
+
+	`CREATE TABLE forward_rules (
+		id            INTEGER PRIMARY KEY,
+		inbox_id      INTEGER REFERENCES inboxes(id) ON DELETE CASCADE, -- NULL = any inbox
+		address_glob  TEXT NOT NULL DEFAULT '',                         -- catch-all address, * wildcard; '' = any
+		destination   TEXT NOT NULL,
+		enabled       INTEGER NOT NULL DEFAULT 1,
+		created_at    INTEGER NOT NULL
+	);
+	ALTER TABLE messages ADD COLUMN auto_forwarded TEXT NOT NULL DEFAULT '[]';`,
+
+	// addresses: newline-separated catch-all address globs; when set, the inbox
+	// receives only those. user_inboxes: per-user access (no rows = all inboxes).
+	`ALTER TABLE inboxes ADD COLUMN addresses TEXT NOT NULL DEFAULT '';
+	CREATE TABLE user_inboxes (
+		user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		inbox_id INTEGER NOT NULL REFERENCES inboxes(id) ON DELETE CASCADE,
+		PRIMARY KEY (user_id, inbox_id)
+	);`,
+
+	// Per-user read state; a missing row means unread.
+	`CREATE TABLE message_reads (
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+		read_at    INTEGER NOT NULL,
+		PRIMARY KEY (user_id, message_id)
+	);
+	CREATE INDEX message_reads_message ON message_reads(message_id);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

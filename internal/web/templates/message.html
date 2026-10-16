@@ -1,74 +1,97 @@
 {{define "content"}}
 {{$d := .Data}}{{$m := $d.M}}
 <p class="crumbs">
-  {{if eq $m.Direction "out"}}<a href="/sent">← Sent</a>{{else}}<a href="/inbox/{{$d.Inbox.ID}}">← {{$d.Inbox.Name}}</a>{{end}}
+  {{if eq $m.Direction "out"}}<a href="/sent">{{icon "arrow-left"}} Sent</a>{{else}}<a href="/inbox/{{$d.Inbox.ID}}">{{icon "arrow-left"}} {{$d.Inbox.Name}}</a>{{end}}
   {{with $m.ParentID}} · <a href="/m/{{.}}">In reply to an earlier message</a>{{end}}
 </p>
-{{if $d.JustSent}}<p class="notice">Sent. <a href="/m/{{$d.JustSent}}">View the sent message</a>.</p>{{end}}
+{{if $d.JustSent}}<p class="notice">{{icon "circle-check"}}<span>Sent. <a href="/m/{{$d.JustSent}}">View the sent message</a>.</span></p>{{end}}
 
-<div class="bar">
-  <h1>{{orNone $m.Subject}}</h1>
-  {{if eq $m.Direction "in"}}
-  <nav class="actions">
-    <a class="button" href="/m/{{$m.ID}}/reply">Reply</a>
-    <a class="button secondary" href="/m/{{$m.ID}}/forward">Forward</a>
-  </nav>
-  {{end}}
-</div>
+<section class="card">
+  <div class="msg-head">
+    <span class="avatar h{{hue $m.From.Address}}">{{initial $m.From.Name $m.From.Address}}</span>
+    <div>
+      <h1>{{orNone $m.Subject}}</h1>
+      <div class="muted">{{addr $m.From}}</div>
+    </div>
+    {{if eq $m.Direction "in"}}
+    <nav class="actions">
+      <a class="button" href="/m/{{$m.ID}}/reply">{{icon "reply"}} Reply</a>
+      <a class="button secondary" href="/m/{{$m.ID}}/forward">{{icon "forward"}} Forward</a>
+      <form method="post" action="/m/{{$m.ID}}/unread" class="inline">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="secondary" title="Mark as unread and go back to the inbox">{{icon "mail"}} Mark unread</button>
+      </form>
+    </nav>
+    {{end}}
+    <form method="post" action="/messages/bulk" class="inline{{if ne $m.Direction "in"}} push-right{{end}}" data-bulk-single>
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{$m.ID}}">
+      <input type="hidden" name="back" value="{{if eq $m.Direction "out"}}/sent{{else}}/inbox/{{$m.InboxID}}{{end}}">
+      <button class="danger" name="action" value="delete" data-confirm="Delete this message? This cannot be undone." title="Delete">{{icon "trash-2"}}</button>
+    </form>
+  </div>
 
-<table class="meta">
-  {{if eq $m.Direction "out"}}<tr><th>Sent by</th><td>{{if $d.SentBy}}{{$d.SentBy}}{{else}}API{{end}}{{with $m.DecodedTo}} <span class="muted">as {{.}}</span>{{end}}</td></tr>{{end}}
-  <tr><th>From</th><td>{{addr $m.From}}</td></tr>
-  <tr><th>To</th><td>{{addrs $m.To}}</td></tr>
-  {{if $m.Cc}}<tr><th>Cc</th><td>{{addrs $m.Cc}}</td></tr>{{end}}
-  <tr><th>Envelope</th><td class="mono">{{$m.EnvelopeFrom}} → {{$m.EnvelopeTo}}{{if eq $m.Direction "in"}}{{with $m.DecodedTo}} <span class="muted">(real recipient {{.}})</span>{{end}}{{end}}</td></tr>
-  <tr><th>Date</th><td>{{full $m.Date}} <span class="muted">· {{if eq $m.Direction "out"}}sent{{else}}received{{end}} {{full $m.ReceivedAt}}</span></td></tr>
-  <tr><th>Size</th><td>{{size $m.Size}}</td></tr>
-  {{if $m.Codes}}<tr><th>Codes</th><td>{{range $m.Codes}}<span class="code big">{{.}}</span> {{end}}</td></tr>{{end}}
-</table>
+  <table class="meta facts">
+    {{if eq $m.Direction "out"}}<tr><th>Sent by</th><td>{{if $d.SentBy}}{{$d.SentBy}}{{else}}API{{end}}{{with $m.DecodedTo}} <span class="muted">as {{.}}</span>{{end}}</td></tr>{{end}}
+    <tr><th>To</th><td>{{addrs $m.To}}</td></tr>
+    {{if $m.Cc}}<tr><th>Cc</th><td>{{addrs $m.Cc}}</td></tr>{{end}}
+    <tr><th>Envelope</th><td class="mono">{{$m.EnvelopeFrom}} → {{$m.EnvelopeTo}}{{if eq $m.Direction "in"}}{{with $m.DecodedTo}} <span class="badge accent">real recipient {{.}}</span>{{end}}{{end}}</td></tr>
+    <tr><th>Date</th><td>{{full $m.Date}} <span class="muted">· {{if eq $m.Direction "out"}}sent{{else}}received{{end}} {{full $m.ReceivedAt}} · {{size $m.Size}}</span></td></tr>
+    {{if $m.AutoForwarded}}<tr><th>Auto-forwarded</th><td class="mono">{{range $i, $x := $m.AutoForwarded}}{{if $i}}, {{end}}{{$x}}{{end}}</td></tr>{{end}}
+    {{if $m.Codes}}<tr><th>Codes</th><td>{{range $m.Codes}}<span class="code big">{{.}}</span> {{end}}</td></tr>{{end}}
+  </table>
+</section>
 
 {{if $d.Children}}
-<h2>Sent from mailcatcher</h2>
-<ul class="children">
-{{range $d.Children}}
-  <li><a href="/m/{{.ID}}">{{orNone .Subject}}</a> <span class="muted">→ {{.EnvelopeTo}} · {{when .ReceivedAt}}</span></li>
-{{end}}
-</ul>
+<section class="card">
+  <h2>Sent from MailCatcher</h2>
+  <ul class="plain">
+  {{range $d.Children}}
+    <li>{{icon "corner-up-left"}}<a href="/m/{{.ID}}">{{orNone .Subject}}</a> <span class="muted">→ {{.EnvelopeTo}} · {{when .ReceivedAt}}</span></li>
+  {{end}}
+  </ul>
+</section>
 {{end}}
 
 {{if $d.Attachments}}
-<h2>Attachments</h2>
-<ul class="atts">
-{{range $d.Attachments}}{{if not .Inline}}
-  <li><a href="/m/{{$m.ID}}/att/{{.ID}}">{{if .Filename}}{{.Filename}}{{else}}attachment-{{.ID}}{{end}}</a> <span class="muted">{{.ContentType}} · {{size .Size}}</span></li>
-{{end}}{{end}}
-</ul>
+<section class="card">
+  <h2>Attachments</h2>
+  <ul class="plain">
+  {{range $d.Attachments}}{{if not .Inline}}
+    <li>{{icon "paperclip"}}<a href="/m/{{$m.ID}}/att/{{.ID}}">{{if .Filename}}{{.Filename}}{{else}}attachment-{{.ID}}{{end}}</a> <span class="muted">{{.ContentType}} · {{size .Size}}</span></li>
+  {{end}}{{end}}
+  </ul>
+</section>
 {{end}}
 
 {{if $m.HTML}}
-<div class="bar">
-  <h2>HTML</h2>
-  {{if $d.Images}}<a href="/m/{{$m.ID}}">Block remote images</a>{{else}}<a href="/m/{{$m.ID}}?images=1">Load remote images</a>{{end}}
-</div>
-<iframe class="body" sandbox="allow-popups allow-popups-to-escape-sandbox" src="/m/{{$m.ID}}/body{{if $d.Images}}?images=1{{end}}" title="Message body"></iframe>
+<section class="card">
+  <div class="section-head">
+    <h2>Message</h2>
+    {{if $d.Images}}<a class="button secondary small" href="/m/{{$m.ID}}">{{icon "image-off"}} Block remote images</a>
+    {{else}}<a class="button secondary small" href="/m/{{$m.ID}}?images=1">{{icon "image"}} Load remote images</a>{{end}}
+  </div>
+  <iframe class="body" sandbox="allow-popups allow-popups-to-escape-sandbox" src="/m/{{$m.ID}}/body{{if $d.Images}}?images=1{{end}}" title="Message body"></iframe>
+</section>
 {{end}}
 
-<details{{if not $m.HTML}} open{{end}}>
-  <summary>Plain text</summary>
-  <pre class="text">{{$m.Text}}</pre>
-</details>
-
-{{if $m.Links}}
-<details open>
-  <summary>Links ({{len $m.Links}})</summary>
-  <ul class="links">{{range $m.Links}}<li><a href="{{.}}" target="_blank" rel="noopener noreferrer">{{.}}</a></li>{{end}}</ul>
-</details>
-{{end}}
-
-<details>
-  <summary>Headers</summary>
-  <pre class="text">{{$d.Headers}}</pre>
-</details>
-
-<p><a href="/m/{{$m.ID}}/raw">View source</a> · <a href="/m/{{$m.ID}}/raw?download=1">Download .eml</a></p>
+<section class="card">
+  <details{{if not $m.HTML}} open{{end}}>
+    <summary>Plain text</summary>
+    <pre class="text">{{$m.Text}}</pre>
+  </details>
+  {{if $m.Links}}
+  <details open>
+    <summary>Links ({{len $m.Links}})</summary>
+    <ul class="plain">{{range $m.Links}}<li>{{icon "link"}}<a href="{{.}}" target="_blank" rel="noopener noreferrer">{{.}}</a></li>{{end}}</ul>
+  </details>
+  {{end}}
+  <details>
+    <summary>Headers</summary>
+    <pre class="text">{{$d.Headers}}</pre>
+  </details>
+  <p class="row">
+    <a class="button secondary small" href="/m/{{$m.ID}}/raw">{{icon "file-code"}} View source</a>
+    <a class="button secondary small" href="/m/{{$m.ID}}/raw?download=1">{{icon "download"}} Download .eml</a>
+  </p>
+</section>
 {{end}}

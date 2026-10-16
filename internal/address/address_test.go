@@ -2,6 +2,7 @@ package address
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,8 @@ func TestRoundTrip(t *testing.T) {
 		{"{inbox}-{local}={domain}", "", "team-1", "b@gmail.com", "team-1-b=gmail.com"},
 		{"{local}.{name}.{tld}", "", "", "b@yahoo.de", "b.yahoo.de"},
 		{"{local}_at_{name}", "net", "", "x@example.net", "x_at_example"},
+		{"{inbox}-{domain}~{local}", "", "team1", "any@gmail.com", "team1-gmail.com~any"},
+		{"{inbox}-{domain}~{local}", "", "team1", "a.b@mail.co.uk", "team1-mail.co.uk~a.b"},
 	}
 	for _, c := range cases {
 		f := mustCompile(t, c.tpl, c.tld, c.slug)
@@ -97,5 +100,21 @@ func TestWarnings(t *testing.T) {
 	}
 	if w := mustCompile(t, "{local}={domain}", "", "").Warnings(); len(w) != 0 {
 		t.Errorf("want none, got %v", w)
+	}
+}
+
+func TestPrefixWarning(t *testing.T) {
+	f := mustCompile(t, "{domain}~{local}", "", "team1")
+	w := f.PrefixWarning([]string{"team1-*@main.test"})
+	if !strings.Contains(w, `"{inbox}-{domain}~{local}"`) {
+		t.Errorf("no {inbox} suggestion: %q", w)
+	}
+	g := mustCompile(t, "{inbox}-{domain}~{local}", "", "team1")
+	if w := g.PrefixWarning([]string{"team1-*@main.test"}); w != "" {
+		t.Errorf("false positive: %q", w)
+	}
+	// Exact addresses and bare wildcards are normal pins, not prefixes.
+	if w := mustCompile(t, "{local}.{name}", "com", "a").PrefixWarning([]string{"*@main.test", "b.gmail@main.test"}); w != "" {
+		t.Errorf("false positive: %q", w)
 	}
 }

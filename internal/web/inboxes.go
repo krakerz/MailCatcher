@@ -59,6 +59,14 @@ func inboxFromForm(r *http.Request) (*store.Inbox, string) {
 		AssumedTLD:     strings.Trim(strings.ToLower(strings.TrimSpace(r.PostFormValue("tld"))), "."),
 	}
 	in.Priority, _ = strconv.Atoi(r.PostFormValue("priority"))
+	for _, line := range strings.Split(r.PostFormValue("addresses"), "\n") {
+		if a := strings.ToLower(strings.TrimSpace(line)); a != "" {
+			if strings.ContainsAny(a, " ,;") || !strings.Contains(a, "@") {
+				return in, "Addresses: one address per line, like b.gmail@example.com or qa-*@example.com (" + a + ")."
+			}
+			in.Addresses = append(in.Addresses, a)
+		}
+	}
 	switch {
 	case in.Name == "":
 		return in, "Name is required."
@@ -87,6 +95,7 @@ func (s *Server) inboxCreate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.rulesChanged()
 	s.renderInboxes(w, r, inboxesData{Notice: "Created inbox " + in.Name + ". New mail is routed to it right away; use “Re-apply routing” to move existing mail."})
 }
 
@@ -128,6 +137,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
+		s.rulesChanged()
 		s.renderInboxes(w, r, inboxesData{Notice: cur.Name + " is now the default inbox."})
 	case "delete":
 		if cur.IsDefault {
@@ -142,6 +152,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
+		s.rulesChanged()
 		s.renderInboxes(w, r, inboxesData{Notice: "Deleted inbox " + cur.Name + " and its messages."})
 	default:
 		in, msg := inboxFromForm(r)
@@ -159,6 +170,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, "inbox_edit", "Edit "+cur.Name, inboxEditData{Inbox: in, Domain: s.Domain, Presets: address.Presets, Error: msg})
 			return
 		}
+		s.rulesChanged()
 		s.renderInboxes(w, r, inboxesData{Notice: "Saved " + in.Name + ". Use “Re-apply routing” to apply the change to existing mail."})
 	}
 }
@@ -194,6 +206,8 @@ func (s *Server) inboxAPIKey(w http.ResponseWriter, r *http.Request) {
 type previewResult struct {
 	Address  string   `json:"address,omitempty"`
 	Decoded  string   `json:"decoded,omitempty"`
+	Lands    string   `json:"lands,omitempty"`    // where mail to Address (or a listed address) really goes
+	Conflict bool     `json:"conflict,omitempty"` // it goes to another inbox
 	Error    string   `json:"error,omitempty"`
 	Warnings []string `json:"warnings"`
 }
@@ -201,7 +215,10 @@ type previewResult struct {
 // formatPreview powers the live preview on the inbox forms.
 func (s *Server) formatPreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	in := &store.Inbox{FormatTemplate: q.Get("format"), AssumedTLD: q.Get("tld"), Slug: strings.ToLower(q.Get("slug")), Domain: strings.ToLower(q.Get("domain"))}
+	in := &store.Inbox{FormatTemplate: q.Get("format"), AssumedTLD: q.Get("tld"), Slug: strings.ToLower(q.Get("slug")),
+		Domain: strings.ToLower(q.Get("domain")), Name: strings.TrimSpace(q.Get("name")), Addresses: strings.Fields(strings.ToLower(q.Get("addresses")))}
+	in.ID, _ = strconv.ParseInt(q.Get("id"), 10, 64)
+	in.Priority, _ = strconv.Atoi(q.Get("priority"))
 	if in.Slug == "" {
 		in.Slug = "team1" // stand-in while the slug field is still empty
 	}
@@ -211,13 +228,70 @@ func (s *Server) formatPreview(w http.ResponseWriter, r *http.Request) {
 		res.Error = err.Error()
 	} else {
 		res.Warnings = append(res.Warnings, f.Warnings()...)
+		if w := f.PrefixWarning(strings.Fields(q.Get("addresses"))); w != "" {
+			res.Warnings = append(res.Warnings, w)
+		}
 		if local, err := f.Encode(q.Get("address")); err != nil {
 			res.Error = err.Error()
 		} else {
 			res.Address = local + "@" + address.CatchDomain(in, s.Domain)
 			res.Decoded, _ = f.Decode(local)
 		}
+		s.explainRouting(r, in, &res)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
+}
+
+// rulesChanged re-pushes forward rules: inbox formats and priorities shape them.
+func (s *Server) rulesChanged() {
+	if s.Rules != nil {
+		s.Rules.PushSoon()
+	}
+}
+
+// explainRouting says where mail to the preview address (or, for an address
+// list, its first entry) really lands, routing against the saved inboxes with
+// this form's values in place of the inbox being edited.
+func (s *Server) explainRouting(r *http.Request, in *store.Inbox, res *previewResult) {
+	all, err := s.Store.ListInboxes(r.Context())
+	if err != nil {
+		return
+	}
+	if in.ID == 0 {
+		in.ID = -1 // not saved yet
+	}
+	list := []*store.Inbox{in}
+	for _, other := range all {
+		if other.ID == in.ID {
+			in.IsDefault = other.IsDefault
+			continue
+		}
+		list = append(list, other)
+	}
+	sample := res.Address
+	if len(in.Addresses) > 0 {
+		sample = strings.ReplaceAll(in.Addresses[0], "*", "any")
+	}
+	if sample == "" {
+		return
+	}
+	id, decoded := address.Route(list, s.Domain, sample)
+	name := in.Name
+	if name == "" {
+		name = "this inbox"
+	}
+	shown := ""
+	if decoded != "" {
+		shown = ", shown as " + decoded
+	}
+	if id == in.ID {
+		res.Lands = "Mail to " + sample + " lands in " + name + shown + "."
+		return
+	}
+	for _, other := range list {
+		if other.ID == id {
+			res.Lands, res.Conflict = "Mail to "+sample+" would land in "+other.Name+" instead — that inbox is checked first (address list, priority or default).", true
+		}
+	}
 }

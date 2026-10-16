@@ -217,3 +217,216 @@ func TestInboxAdmin(t *testing.T) {
 		t.Fatalf("not rerouted: inbox %d decoded %q", got.InboxID, got.DecodedTo)
 	}
 }
+
+func TestRulesPage(t *testing.T) {
+	c, st := setup(t)
+	c.login("admin", "admin-pass")
+	f := url.Values{"csrf": {c.csrf("/rules")}, "inbox": {"1"}, "glob": {"*.gmail@*"}, "destination": {"Fwd@Example.com"}}
+	if code, _, body := c.do("POST", "/rules", f); code != 200 || !strings.Contains(body, "Rule added") {
+		t.Fatalf("create: %d", code)
+	}
+	list, _ := st.ListRules(context.Background())
+	if len(list) != 1 || list[0].Destination != "fwd@example.com" || !list[0].Enabled {
+		t.Fatalf("stored %+v", list)
+	}
+	_, _, body := c.do("GET", "/rules?test=b.gmail@example.test", nil)
+	if !strings.Contains(body, "Routes to inbox <b>Default (real address b@gmail.com)</b>") || !strings.Contains(body, `<span class="mono">fwd@example.com</span>`) {
+		t.Fatalf("test box wrong:\n%s", body[strings.Index(body, "Test an address"):])
+	}
+	_, _, body = c.do("GET", "/rules?test=plain@example.test", nil)
+	if !strings.Contains(body, "No rule matches") {
+		t.Fatal("non-matching address reported as forwarded")
+	}
+	c.do("POST", "/rules/"+itoa(list[0].ID), url.Values{"csrf": {c.csrf("/rules")}, "action": {"disable"}})
+	if list, _ = st.ListRules(context.Background()); list[0].Enabled {
+		t.Fatal("not disabled")
+	}
+}
+
+func TestInboxAddressList(t *testing.T) {
+	c, st := setup(t)
+	c.login("admin", "admin-pass")
+	f := url.Values{"csrf": {c.csrf("/admin/inboxes")}, "name": {"Inbox A"}, "slug": {"inbox-a"},
+		"format": {"{local}.{name}"}, "tld": {"com"}, "addresses": {"B.gmail@example.test\r\n\r\nqa-*@example.test"}}
+	if code, _, _ := c.do("POST", "/admin/inboxes", f); code != 200 {
+		t.Fatalf("create: %d", code)
+	}
+	list, _ := st.ListInboxes(context.Background())
+	var a *store.Inbox
+	for _, in := range list {
+		if in.Slug == "inbox-a" {
+			a = in
+		}
+	}
+	if a == nil || len(a.Addresses) != 2 || a.Addresses[0] != "b.gmail@example.test" {
+		t.Fatalf("stored %+v", a)
+	}
+	f.Set("csrf", c.csrf("/admin/inboxes"))
+	f.Set("slug", "inbox-b")
+	f.Set("addresses", "not an address")
+	if code, _, _ := c.do("POST", "/admin/inboxes", f); code != http.StatusBadRequest {
+		t.Fatalf("bad address list accepted: %d", code)
+	}
+}
+
+// A user limited to some inboxes cannot see, open or send from the others.
+func TestUserInboxAccess(t *testing.T) {
+	c, st := setup(t)
+	ctx := context.Background()
+	other := &store.Inbox{Name: "Other", Slug: "other", FormatTemplate: "{inbox}-{local}={domain}", AssumedTLD: "com"}
+	if err := st.CreateInbox(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	hidden := &store.Message{InboxID: 1, Direction: "in", Subject: "secret-default"}
+	st.InsertMessage(ctx, hidden, []byte("Subject: secret-default\r\n\r\nx\r\n"), nil)
+	shown := &store.Message{InboxID: other.ID, Direction: "in", Subject: "visible-other"}
+	st.InsertMessage(ctx, shown, []byte("Subject: visible-other\r\n\r\ny\r\n"), nil)
+
+	hash, _ := auth.HashPassword("user-password")
+	u := &store.User{Username: "limited", PasswordHash: hash, Role: "user"}
+	st.CreateUser(ctx, u)
+	c.login("admin", "admin-pass")
+	c.do("POST", "/admin/users/"+itoa(u.ID), url.Values{"csrf": {c.csrf("/admin/users")}, "action": {"inboxes"}, "inbox": {itoa(other.ID)}})
+	if ids, _ := st.UserInboxIDs(ctx, u.ID); len(ids) != 1 || ids[0] != other.ID {
+		t.Fatalf("access not saved: %v", ids)
+	}
+
+	lc := newClient(t, c.base)
+	lc.login("limited", "user-password")
+	if _, loc, _ := lc.do("GET", "/", nil); loc != "/inbox/"+itoa(other.ID) {
+		t.Errorf("home redirects to %s", loc)
+	}
+	_, _, body := lc.do("GET", "/inbox/"+itoa(other.ID), nil)
+	if !strings.Contains(body, "visible-other") || strings.Contains(body, ">Default<") {
+		t.Error("allowed inbox page wrong or sidebar shows hidden inbox")
+	}
+	for _, path := range []string{"/inbox/1", "/inbox/1/rows", "/m/" + itoa(hidden.ID), "/m/" + itoa(hidden.ID) + "/raw", "/m/" + itoa(hidden.ID) + "/reply"} {
+		if code, _, _ := lc.do("GET", path, nil); code != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404", path, code)
+		}
+	}
+	if code, _, _ := lc.do("GET", "/m/"+itoa(shown.ID), nil); code != 200 {
+		t.Errorf("allowed message: %d", code)
+	}
+	f := url.Values{"csrf": {lc.csrf("/compose")}, "inbox": {"1"}, "identity": {"b@gmail.com"}, "to": {"x@example.com"}}
+	if _, _, body := lc.do("POST", "/compose", f); !strings.Contains(body, "do not have access to that inbox") {
+		t.Error("compose from a hidden inbox not refused")
+	}
+	lc.do("POST", "/messages/bulk", url.Values{"csrf": {lc.csrf("/inbox/" + itoa(other.ID))}, "action": {"delete"}, "id": {itoa(hidden.ID)}, "back": {"/"}})
+	if _, err := st.GetMessage(ctx, hidden.ID); err != nil {
+		t.Error("restricted user deleted a message from a hidden inbox")
+	}
+	// Clearing the list gives access to everything again.
+	c.do("POST", "/admin/users/"+itoa(u.ID), url.Values{"csrf": {c.csrf("/admin/users")}, "action": {"inboxes"}})
+	if code, _, _ := lc.do("GET", "/inbox/1", nil); code != 200 {
+		t.Errorf("after clearing access: %d", code)
+	}
+}
+
+func TestRulesScopedToUserInboxes(t *testing.T) {
+	c, st := setup(t)
+	ctx := context.Background()
+	other := &store.Inbox{Name: "Other", Slug: "other", FormatTemplate: "{inbox}-{local}={domain}"}
+	st.CreateInbox(ctx, other)
+	st.CreateRule(ctx, &store.ForwardRule{InboxID: 1, Destination: "default-dest@example.com", Enabled: true})
+	theirs := &store.ForwardRule{InboxID: other.ID, Destination: "other-dest@example.com", Enabled: true}
+	st.CreateRule(ctx, theirs)
+
+	hash, _ := auth.HashPassword("user-password")
+	u := &store.User{Username: "scoped", PasswordHash: hash, Role: "user"}
+	st.CreateUser(ctx, u)
+	st.SetUserInboxes(ctx, u.ID, []int64{other.ID})
+	lc := newClient(t, c.base)
+	lc.login("scoped", "user-password")
+
+	_, _, body := lc.do("GET", "/rules", nil)
+	if !strings.Contains(body, "other-dest@example.com") || strings.Contains(body, "default-dest@example.com") || strings.Contains(body, "Any inbox") {
+		t.Fatal("rules page not scoped")
+	}
+	f := url.Values{"csrf": {lc.csrf("/rules")}, "inbox": {"1"}, "destination": {"x@example.com"}}
+	if code, _, _ := lc.do("POST", "/rules", f); code != http.StatusBadRequest {
+		t.Errorf("rule for hidden inbox: %d", code)
+	}
+	f.Set("csrf", lc.csrf("/rules"))
+	f.Set("inbox", "0")
+	if code, _, _ := lc.do("POST", "/rules", f); code != http.StatusBadRequest {
+		t.Errorf("any-inbox rule by restricted user: %d", code)
+	}
+	f.Set("csrf", lc.csrf("/rules"))
+	f.Set("inbox", itoa(other.ID))
+	if code, _, _ := lc.do("POST", "/rules", f); code != 200 {
+		t.Errorf("own rule: %d", code)
+	}
+	list, _ := st.ListRules(ctx)
+	if len(list) != 3 {
+		t.Fatalf("rules %d", len(list))
+	}
+	if code, _, _ := lc.do("POST", "/rules/"+itoa(list[0].ID), url.Values{"csrf": {lc.csrf("/rules")}, "action": {"delete"}}); code != http.StatusNotFound {
+		t.Errorf("deleting a hidden inbox's rule: %d", code)
+	}
+}
+
+func TestUnreadAndSentFilter(t *testing.T) {
+	c, st := setup(t)
+	ctx := context.Background()
+	c.login("admin", "admin-pass")
+	m := &store.Message{InboxID: 1, Direction: "in", Subject: "fresh"}
+	st.InsertMessage(ctx, m, []byte("Subject: fresh\r\n\r\nx\r\n"), nil)
+
+	unreadRow := `class="mail-row unread"` // the inbox holds only this message
+	if _, _, body := c.do("GET", "/inbox/1", nil); !strings.Contains(body, unreadRow) || !strings.Contains(body, `<span class="count">1</span>`) {
+		t.Fatal("new mail not shown as unread with a sidebar count")
+	}
+	c.do("GET", "/m/"+itoa(m.ID), nil)
+	if _, _, body := c.do("GET", "/inbox/1", nil); strings.Contains(body, unreadRow) {
+		t.Fatal("opened mail still unread")
+	}
+	c.do("POST", "/m/"+itoa(m.ID)+"/unread", url.Values{"csrf": {c.csrf("/inbox/1")}})
+	if _, _, body := c.do("GET", "/inbox/1", nil); !strings.Contains(body, unreadRow) {
+		t.Fatal("mark unread had no effect")
+	}
+	c.do("POST", "/inbox/1/read", url.Values{"csrf": {c.csrf("/inbox/1")}})
+	if _, _, body := c.do("GET", "/inbox/1", nil); strings.Contains(body, unreadRow) {
+		t.Fatal("mark all read had no effect")
+	}
+
+	other := &store.Inbox{Name: "Other", Slug: "other", FormatTemplate: "{inbox}-{local}={domain}"}
+	st.CreateInbox(ctx, other)
+	st.InsertMessage(ctx, &store.Message{InboxID: 1, Direction: "out", Subject: "from-default"}, []byte("Subject: a\r\n\r\n1\r\n"), nil)
+	st.InsertMessage(ctx, &store.Message{InboxID: other.ID, Direction: "out", Subject: "from-other"}, []byte("Subject: b\r\n\r\n2\r\n"), nil)
+	_, _, body := c.do("GET", "/sent?inbox="+itoa(other.ID), nil)
+	if !strings.Contains(body, "from-other") || strings.Contains(body, "from-default") {
+		t.Fatal("sent not filtered by inbox")
+	}
+	if _, _, body := c.do("GET", "/sent", nil); !strings.Contains(body, "from-other") || !strings.Contains(body, "from-default") {
+		t.Fatal("all-inboxes sent view incomplete")
+	}
+}
+
+func TestBulkActions(t *testing.T) {
+	c, st := setup(t)
+	ctx := context.Background()
+	c.login("admin", "admin-pass")
+	var ids []string
+	for i := range 3 {
+		m := &store.Message{InboxID: 1, Direction: "in", Subject: "bulk"}
+		st.InsertMessage(ctx, m, []byte("Subject: b\r\n\r\n"+itoa(int64(i))+"\r\n"), nil)
+		ids = append(ids, itoa(m.ID))
+	}
+	post := func(action string, sel ...string) {
+		c.do("POST", "/messages/bulk", url.Values{"csrf": {c.csrf("/inbox/1")}, "action": {action}, "id": sel, "back": {"/inbox/1"}})
+	}
+	post("read", ids[0], ids[1])
+	if _, _, body := c.do("GET", "/inbox/1", nil); strings.Count(body, `class="mail-row unread"`) != 1 {
+		t.Fatalf("after bulk read: %d unread", strings.Count(body, `class="mail-row unread"`))
+	}
+	post("unread", ids[0])
+	post("delete", ids[1], ids[2])
+	list, _ := st.ListMessages(ctx, store.Filter{InboxID: 1})
+	if len(list) != 1 || itoa(list[0].ID) != ids[0] {
+		t.Fatalf("after delete: %+v", list)
+	}
+	if _, _, body := c.do("GET", "/inbox/1", nil); strings.Count(body, `class="mail-row unread"`) != 1 {
+		t.Fatal("bulk unread lost")
+	}
+}
