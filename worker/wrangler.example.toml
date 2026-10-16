@@ -1,0 +1,17 @@
+# Copy to wrangler.toml (gitignored) and fill in the placeholders.
+# KV id: npx wrangler kv namespace create MAILCATCHER
+
+name = "mailcatcher"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Outbound: free only to verified destination addresses.
+send_email = [{ name = "SEND" }]
+
+# Forward rules pushed by the app, plus mail stashed while the app is unreachable.
+kv_namespaces = [{ binding = "KV", id = "<kv namespace id>" }]
+
+[vars]
+INGEST_URL = "https://<app hostname>/internal/ingest"
+
+# Secret (not in this file): npx wrangler secret put HMAC_SECRET
