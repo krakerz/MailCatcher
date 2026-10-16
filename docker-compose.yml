@@ -1,0 +1,19 @@
+services:
+  mailcatcher:
+    build: .
+    restart: unless-stopped
+    environment:
+      MC_DOMAIN: ${MC_DOMAIN}
+      MC_HMAC_SECRET: ${MC_HMAC_SECRET}
+    volumes:
+      - ./data:/data
+    # No published ports: reachable only through the tunnel (http://mailcatcher:8080).
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - mailcatcher
