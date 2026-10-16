@@ -49,7 +49,7 @@ func (s *Server) loadInbox(r *http.Request) (*inboxData, error) {
 	d := &inboxData{Inbox: in, Q: r.URL.Query().Get("q")}
 	d.Before, _ = strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	// One extra row tells whether an older page exists.
-	msgs, err := s.Store.ListMessages(r.Context(), store.Filter{InboxID: id, Q: d.Q, BeforeID: d.Before, Limit: pageSize + 1})
+	msgs, err := s.Store.ListMessages(r.Context(), store.Filter{InboxID: id, Direction: "in", Q: d.Q, BeforeID: d.Before, Limit: pageSize + 1})
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +121,9 @@ type messageData struct {
 	Attachments []store.Attachment
 	Headers     string
 	Images      bool
+	SentBy      string           // username, outbound only
+	Children    []*store.Message // replies/forwards sent from here
+	JustSent    int64            // id of a message just sent in reply to this one
 }
 
 func (s *Server) messagePage(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +142,16 @@ func (s *Server) messagePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Headers = rawHeaders(s.Store.Path(m.RawPath))
+	if d.Children, err = s.Store.Children(r.Context(), m.ID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if m.SentBy != nil {
+		if u, err := s.Store.GetUser(r.Context(), *m.SentBy); err == nil {
+			d.SentBy = u.Username
+		}
+	}
+	d.JustSent, _ = strconv.ParseInt(r.URL.Query().Get("sent"), 10, 64)
 	title := m.Subject
 	if title == "" {
 		title = "(no subject)"

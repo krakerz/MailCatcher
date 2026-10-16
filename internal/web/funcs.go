@@ -50,6 +50,15 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%d B", n)
 	},
+	// dict builds a map for passing several values to a sub-template.
+	"dict": func(kv ...any) map[string]any {
+		m := make(map[string]any, len(kv)/2)
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
+	},
+	"deref": func(p *int64) int64 { return *p },
 	"orNone": func(s string) string {
 		if s == "" {
 			return "(no subject)"

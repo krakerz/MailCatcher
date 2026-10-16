@@ -33,7 +33,7 @@ func (s *Server) usersPage(w http.ResponseWriter, r *http.Request) {
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{2,32}$`)
 
-func validRole(role string) bool { return role == "admin" || role == "qa" }
+func validRole(role string) bool { return role == "admin" || role == "user" }
 
 func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	username := strings.TrimSpace(r.PostFormValue("username"))
@@ -125,42 +125,4 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 		s.Store.DeleteUserSessions(r.Context(), u.ID, "")
 	}
 	s.renderUsers(w, r, usersData{Notice: notice})
-}
-
-type inboxesData struct {
-	Inboxes []*store.Inbox
-	Key     string // freshly generated API key, shown once
-	KeyFor  string
-}
-
-func (s *Server) inboxesPage(w http.ResponseWriter, r *http.Request) {
-	s.renderInboxes(w, r, inboxesData{})
-}
-
-func (s *Server) renderInboxes(w http.ResponseWriter, r *http.Request, d inboxesData) {
-	var err error
-	if d.Inboxes, err = s.Store.ListInboxes(r.Context()); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.render(w, r, "inboxes", "Inboxes", d)
-}
-
-func (s *Server) inboxAPIKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r, "id")
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	in, err := s.Store.GetInbox(r.Context(), id)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	key := "mc_" + auth.Token(24)
-	if err := s.Store.SetInboxAPIKeyHash(r.Context(), id, auth.HashToken(key)); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.renderInboxes(w, r, inboxesData{Key: key, KeyFor: in.Name})
 }

@@ -59,15 +59,16 @@ func scanMessage(row interface{ Scan(...any) error }, bodies bool) (*Message, er
 
 // Filter selects messages. Text fields are case-insensitive substring matches.
 type Filter struct {
-	InboxID  int64
-	To       string // envelope recipient, To or Cc
-	From     string // envelope sender or From
-	Subject  string
-	Q        string // any of to/from/subject
-	Since    time.Time
-	AfterID  int64 // id > AfterID (newer)
-	BeforeID int64 // id < BeforeID (older, for paging)
-	Limit    int   // default 50, max 500
+	InboxID   int64
+	Direction string // "in", "out" or "" for both
+	To        string // envelope recipient, To or Cc
+	From      string // envelope sender or From
+	Subject   string
+	Q         string // any of to/from/subject
+	Since     time.Time
+	AfterID   int64 // id > AfterID (newer)
+	BeforeID  int64 // id < BeforeID (older, for paging)
+	Limit     int   // default 50, max 500
 }
 
 func likeArg(s string) string {
@@ -83,6 +84,9 @@ func (f Filter) where() (string, []any) {
 	add := func(c string, a ...any) { conds = append(conds, c); args = append(args, a...) }
 	if f.InboxID != 0 {
 		add("inbox_id = ?", f.InboxID)
+	}
+	if f.Direction != "" {
+		add("direction = ?", f.Direction)
 	}
 	if f.To != "" {
 		l := likeArg(f.To)
@@ -241,4 +245,22 @@ func (s *Store) InboxByAPIKeyHash(ctx context.Context, hash string) (*Inbox, err
 func (s *Store) SetInboxAPIKeyHash(ctx context.Context, id int64, hash string) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE inboxes SET api_key_hash = ? WHERE id = ?", hash, id)
 	return err
+}
+
+// Children returns messages that answer id (replies and forwards), oldest first.
+func (s *Store) Children(ctx context.Context, id int64) ([]*Message, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT "+msgCols+" FROM messages WHERE parent_id = ? ORDER BY id", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Message
+	for rows.Next() {
+		m, err := scanMessage(rows, false)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

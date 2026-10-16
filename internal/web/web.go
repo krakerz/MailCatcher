@@ -17,11 +17,13 @@ import (
 	"time"
 
 	"mailcatcher/internal/auth"
+	"mailcatcher/internal/destinations"
 	"mailcatcher/internal/events"
+	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/store"
 )
 
-//go:embed templates static
+//go:embed all:templates static
 var assets embed.FS
 
 const (
@@ -34,13 +36,17 @@ type Server struct {
 	Broker       *events.Broker
 	Limiter      *auth.Limiter
 	CookieSecure bool
+	Domain       string // main catch-all domain
+	Mailer       *outbound.Mailer
+	Dest         *destinations.Service
 
 	pages map[string]*template.Template
 }
 
-func New(st *store.Store, b *events.Broker, cookieSecure bool) (*Server, error) {
+func New(st *store.Store, b *events.Broker, domain string, cookieSecure bool) (*Server, error) {
 	s := &Server{
 		Store:        st,
+		Domain:       domain,
 		Broker:       b,
 		Limiter:      auth.NewLimiter(10, 15*time.Minute),
 		CookieSecure: cookieSecure,
@@ -50,12 +56,17 @@ func New(st *store.Store, b *events.Broker, cookieSecure bool) (*Server, error) 
 	if err != nil {
 		return nil, err
 	}
+	partials, err := fs.Glob(assets, "templates/_*.html")
+	if err != nil {
+		return nil, err
+	}
 	for _, n := range names {
 		base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
-		if base == "layout" {
+		if base == "layout" || strings.HasPrefix(base, "_") {
 			continue
 		}
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, "templates/layout.html", n)
+		files := append([]string{"templates/layout.html", n}, partials...)
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, files...)
 		if err != nil {
 			return nil, err
 		}
@@ -84,12 +95,29 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /m/{id}/body", s.user(s.messageBody))
 	mux.Handle("GET /m/{id}/raw", s.user(s.messageRaw))
 	mux.Handle("GET /m/{id}/att/{aid}", s.user(s.attachment))
+	mux.Handle("GET /m/{id}/reply", s.user(s.replyPage))
+	mux.Handle("POST /m/{id}/reply", s.user(s.replySubmit))
+	mux.Handle("GET /m/{id}/forward", s.user(s.forwardPage))
+	mux.Handle("POST /m/{id}/forward", s.user(s.forwardSubmit))
+	mux.Handle("GET /compose", s.user(s.composePage))
+	mux.Handle("POST /compose", s.user(s.composeSubmit))
+	mux.Handle("GET /compose/from", s.user(s.composeFrom))
+	mux.Handle("GET /sent", s.user(s.sentPage))
+	mux.Handle("GET /destinations", s.user(s.destinationsPage))
+	mux.Handle("POST /destinations", s.user(s.destinationAdd))
+	mux.Handle("POST /destinations/sync", s.user(s.destinationSync))
+	mux.Handle("POST /destinations/remove", s.admin(s.destinationRemove))
 
 	mux.Handle("GET /admin/users", s.admin(s.usersPage))
 	mux.Handle("POST /admin/users", s.admin(s.userCreate))
 	mux.Handle("POST /admin/users/{id}", s.admin(s.userUpdate))
 	mux.Handle("GET /admin/inboxes", s.admin(s.inboxesPage))
+	mux.Handle("POST /admin/inboxes", s.admin(s.inboxCreate))
+	mux.Handle("POST /admin/inboxes/reroute", s.admin(s.inboxReroute))
+	mux.Handle("GET /admin/inboxes/{id}", s.admin(s.inboxEditPage))
+	mux.Handle("POST /admin/inboxes/{id}", s.admin(s.inboxUpdate))
 	mux.Handle("POST /admin/inboxes/{id}/apikey", s.admin(s.inboxAPIKey))
+	mux.Handle("GET /admin/format-preview", s.admin(s.formatPreview))
 }
 
 type ctxKey struct{}
@@ -118,6 +146,8 @@ func (s *Server) user(h http.HandlerFunc) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet {
+			// Uploads included; a little above the attachment cap for the other fields.
+			r.Body = http.MaxBytesReader(w, r.Body, outbound.MaxUpload+(2<<20))
 			tok := r.PostFormValue("csrf")
 			if subtle.ConstantTimeCompare([]byte(tok), []byte(c.Session.CSRF)) != 1 {
 				http.Error(w, "invalid form token, reload the page", http.StatusForbidden)

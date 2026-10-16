@@ -5,6 +5,9 @@ services:
     environment:
       MC_DOMAIN: ${MC_DOMAIN}
       MC_HMAC_SECRET: ${MC_HMAC_SECRET}
+      MC_WORKER_URL: ${MC_WORKER_URL}
+      MC_CF_API_TOKEN: ${MC_CF_API_TOKEN:-}
+      MC_CF_ACCOUNT_ID: ${MC_CF_ACCOUNT_ID:-}
       MC_ADMIN_PASSWORD: ${MC_ADMIN_PASSWORD:-}
     volumes:
       - ./data:/data

@@ -15,7 +15,7 @@
       <form method="post" action="/admin/users/{{.ID}}" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="action" value="role">
         <select name="role">
-          <option value="qa"{{if eq .Role "qa"}} selected{{end}}>QA</option>
+          <option value="user"{{if eq .Role "user"}} selected{{end}}>User</option>
           <option value="admin"{{if eq .Role "admin"}} selected{{end}}>Admin</option>
         </select>
         <button class="small">Set</button>
@@ -42,7 +42,7 @@
   <div class="row">
     <label>Username <input name="username" required pattern="[A-Za-z0-9._\-]{2,32}"></label>
     <label>Email <span class="muted">(optional)</span> <input name="email" type="email"></label>
-    <label>Role <select name="role"><option value="qa">QA</option><option value="admin">Admin</option></select></label>
+    <label>Role <select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>
     <button>Create</button>
   </div>
   <p class="muted">A temporary password is generated and shown once; the user must change it at first login.</p>

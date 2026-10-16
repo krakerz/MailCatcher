@@ -39,7 +39,7 @@ func setup(t *testing.T) (*Handler, *store.Store, *[]int64) {
 	}
 	t.Cleanup(func() { st.Close() })
 	var stored []int64
-	h := &Handler{Store: st, Secret: secret, Now: func() time.Time { return now },
+	h := &Handler{Store: st, Secret: secret, Domain: "example.test", Now: func() time.Time { return now },
 		OnStored: func(m *store.Message) { stored = append(stored, m.ID) }}
 	return h, st, &stored
 }

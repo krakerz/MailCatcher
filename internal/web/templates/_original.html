@@ -1,0 +1,17 @@
+{{define "original"}}
+{{/* dot: *store.Message being replied to / forwarded */}}
+<section class="card original">
+  <h2>Original message</h2>
+  <table class="meta">
+    <tr><th>From</th><td>{{addr .From}}</td></tr>
+    <tr><th>To</th><td>{{addrs .To}}</td></tr>
+    <tr><th>Date</th><td>{{full .Date}}</td></tr>
+    <tr><th>Subject</th><td>{{orNone .Subject}}</td></tr>
+  </table>
+  {{if .HTML}}
+  <iframe class="body short" sandbox="allow-popups allow-popups-to-escape-sandbox" src="/m/{{.ID}}/body" title="Original message"></iframe>
+  {{else}}
+  <pre class="text">{{.Text}}</pre>
+  {{end}}
+</section>
+{{end}}

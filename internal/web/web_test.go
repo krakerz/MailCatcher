@@ -33,7 +33,7 @@ func setup(t *testing.T) (*client, *store.Store) {
 	if err := Bootstrap(context.Background(), st, "admin-pass"); err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(st, events.NewBroker(), false)
+	s, err := New(st, events.NewBroker(), "example.test", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,28 +126,28 @@ func TestLoginRateLimit(t *testing.T) {
 func TestCreatedUserMustChangePassword(t *testing.T) {
 	c, st := setup(t)
 	c.login("admin", "admin-pass")
-	_, _, body := c.do("POST", "/admin/users", url.Values{"csrf": {c.csrf("/admin/users")}, "username": {"qa1"}, "role": {"qa"}})
+	_, _, body := c.do("POST", "/admin/users", url.Values{"csrf": {c.csrf("/admin/users")}, "username": {"user1"}, "role": {"user"}})
 	m := regexp.MustCompile(`must be changed at first login\): ([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("no temp password in: %s", body)
 	}
 
-	qa := newClient(t, c.base)
-	qa.login("qa1", m[1])
-	if code, loc, _ := qa.do("GET", "/inbox/1", nil); code != http.StatusSeeOther || loc != "/account/password" {
+	u := newClient(t, c.base)
+	u.login("user1", m[1])
+	if code, loc, _ := u.do("GET", "/inbox/1", nil); code != http.StatusSeeOther || loc != "/account/password" {
 		t.Fatalf("not forced to change password: %d %s", code, loc)
 	}
-	tok := qa.csrf("/account/password")
-	qa.do("POST", "/account/password", url.Values{"csrf": {tok}, "current": {m[1]}, "new": {"new-password-1"}, "confirm": {"new-password-1"}})
-	if code, _, _ := qa.do("GET", "/inbox/1", nil); code != 200 {
+	tok := u.csrf("/account/password")
+	u.do("POST", "/account/password", url.Values{"csrf": {tok}, "current": {m[1]}, "new": {"new-password-1"}, "confirm": {"new-password-1"}})
+	if code, _, _ := u.do("GET", "/inbox/1", nil); code != 200 {
 		t.Fatalf("after change: %d", code)
 	}
-	if code, _, _ := qa.do("GET", "/admin/users", nil); code != http.StatusForbidden {
-		t.Fatalf("qa reached admin page: %d", code)
+	if code, _, _ := u.do("GET", "/admin/users", nil); code != http.StatusForbidden {
+		t.Fatalf("user reached admin page: %d", code)
 	}
-	u, _ := st.GetUserByName(context.Background(), "qa1")
-	if ok, _ := auth.CheckPassword(u.PasswordHash, "new-password-1"); !ok || u.MustChangePassword {
-		t.Fatalf("password not saved: %+v", u)
+	saved, _ := st.GetUserByName(context.Background(), "user1")
+	if ok, _ := auth.CheckPassword(saved.PasswordHash, "new-password-1"); !ok || saved.MustChangePassword {
+		t.Fatalf("password not saved: %+v", saved)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestLastAdminProtected(t *testing.T) {
 	path := "/admin/users/" + itoa(admin.ID)
 	for _, f := range []url.Values{
 		{"action": {"disable"}},
-		{"action": {"role"}, "role": {"qa"}},
+		{"action": {"role"}, "role": {"user"}},
 	} {
 		f.Set("csrf", c.csrf("/admin/users"))
 		if code, _, _ := c.do("POST", path, f); code != http.StatusBadRequest {
@@ -172,17 +172,48 @@ func TestLastAdminProtected(t *testing.T) {
 
 func TestDisabledUserLoggedOut(t *testing.T) {
 	c, st := setup(t)
-	hash, _ := auth.HashPassword("qa-password")
-	qaUser := &store.User{Username: "qa2", PasswordHash: hash, Role: "qa"}
-	st.CreateUser(context.Background(), qaUser)
-	qa := newClient(t, c.base)
-	qa.login("qa2", "qa-password")
+	hash, _ := auth.HashPassword("user-password")
+	plainUser := &store.User{Username: "user2", PasswordHash: hash, Role: "user"}
+	st.CreateUser(context.Background(), plainUser)
+	u := newClient(t, c.base)
+	u.login("user2", "user-password")
 
 	c.login("admin", "admin-pass")
-	c.do("POST", "/admin/users/"+itoa(qaUser.ID), url.Values{"csrf": {c.csrf("/admin/users")}, "action": {"disable"}})
-	if code, _, _ := qa.do("GET", "/inbox/1", nil); code != http.StatusSeeOther {
+	c.do("POST", "/admin/users/"+itoa(plainUser.ID), url.Values{"csrf": {c.csrf("/admin/users")}, "action": {"disable"}})
+	if code, _, _ := u.do("GET", "/inbox/1", nil); code != http.StatusSeeOther {
 		t.Fatalf("disabled user still in: %d", code)
 	}
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestInboxAdmin(t *testing.T) {
+	c, st := setup(t)
+	ctx := context.Background()
+	raw := []byte("From: a@x.test\r\nTo: team1-b=gmail.com@example.test\r\nSubject: s\r\n\r\nhi\r\n")
+	m := &store.Message{InboxID: 1, Direction: "in", EnvelopeTo: "team1-b=gmail.com@example.test"}
+	if _, err := st.InsertMessage(ctx, m, raw, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.login("admin", "admin-pass")
+
+	bad := url.Values{"csrf": {c.csrf("/admin/inboxes")}, "name": {"T"}, "slug": {"team1"}, "format": {"{local}"}}
+	if code, _, body := c.do("POST", "/admin/inboxes", bad); code != http.StatusBadRequest || !strings.Contains(body, "needs {domain} or {name}") {
+		t.Fatalf("invalid format accepted: %d", code)
+	}
+	good := url.Values{"csrf": {c.csrf("/admin/inboxes")}, "name": {"Team 1"}, "slug": {"team1"}, "format": {"{inbox}-{local}={domain}"}}
+	if code, _, body := c.do("POST", "/admin/inboxes", good); code != 200 || !strings.Contains(body, "Created inbox Team 1") {
+		t.Fatalf("create: %d", code)
+	}
+
+	_, _, body := c.do("GET", "/admin/format-preview?format=%7Binbox%7D-%7Blocal%7D%3D%7Bdomain%7D&slug=team1&address=b@gmail.com", nil)
+	if !strings.Contains(body, `"address":"team1-b=gmail.com@example.test"`) || !strings.Contains(body, `"decoded":"b@gmail.com"`) {
+		t.Fatalf("preview: %s", body)
+	}
+
+	c.do("POST", "/admin/inboxes/reroute", url.Values{"csrf": {c.csrf("/admin/inboxes")}})
+	got, _ := st.GetMessage(ctx, m.ID)
+	if got.InboxID == 1 || got.DecodedTo != "b@gmail.com" {
+		t.Fatalf("not rerouted: inbox %d decoded %q", got.InboxID, got.DecodedTo)
+	}
+}

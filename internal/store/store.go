@@ -107,7 +107,7 @@ var migrations = []string{
 		username             TEXT NOT NULL UNIQUE COLLATE NOCASE,
 		email                TEXT NOT NULL DEFAULT '',
 		password_hash        TEXT NOT NULL,
-		role                 TEXT NOT NULL CHECK (role IN ('admin', 'qa')),
+		role                 TEXT NOT NULL CHECK (role IN ('admin', 'user')),
 		disabled             INTEGER NOT NULL DEFAULT 0,
 		must_change_password INTEGER NOT NULL DEFAULT 0,
 		created_at           INTEGER NOT NULL,
@@ -123,6 +123,15 @@ var migrations = []string{
 		expires_at INTEGER NOT NULL
 	);
 	CREATE INDEX sessions_user ON sessions(user_id);`,
+
+	// Local mirror of Cloudflare's destination addresses (synced, never edited by hand).
+	`CREATE TABLE destinations (
+		email       TEXT PRIMARY KEY COLLATE NOCASE,
+		cf_id       TEXT NOT NULL,
+		verified_at INTEGER,
+		created_at  INTEGER NOT NULL,
+		synced_at   INTEGER NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

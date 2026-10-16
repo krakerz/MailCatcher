@@ -10,6 +10,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -60,3 +61,26 @@ pre.text { white-space: pre-wrap; word-break: break-word; background: var(--card
 details { margin: 12px 0; }
 summary { cursor: pointer; font-weight: 600; }
 ul.links, ul.atts { padding-left: 20px; word-break: break-all; }
+.grow { flex: 1; }
+.grow input { width: 100%; }
+input.short { width: 90px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--code-bg); padding: 0 4px; border-radius: 4px; }
+.preview { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+.preview label { margin: 0; }
+.preview .ok { color: var(--fg); }
+.preview .warn { color: var(--muted); font-family: system-ui, sans-serif; }
+.preview .bad { color: var(--danger); }
+a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+a.button:hover { text-decoration: none; filter: brightness(1.08); }
+a.button.secondary, button.secondary { background: transparent; color: var(--accent); }
+.actions { display: flex; gap: 8px; margin-left: auto; }
+textarea { font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); width: 100%; resize: vertical; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; padding: 8px 12px; }
+legend { color: var(--muted); padding: 0 4px; }
+label.check { flex-direction: row; align-items: center; gap: 8px; margin: 4px 0; }
+ul.children { padding-left: 20px; }
+iframe.body.short { height: 45vh; }
+.original h2 { margin-top: 0; }
+.ok { color: #2f9e55; }
+.warn { color: #c98a14; }
+.error-action { display: flex; gap: 12px; align-items: center; margin-top: -4px; }

@@ -1,0 +1,58 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$d := .Data}}{{$admin := .User.IsAdmin}}
+<div class="bar">
+  <h1>Destination addresses</h1>
+  {{if $d.Enabled}}
+  <form method="post" action="/destinations/sync" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button class="small secondary">Refresh from Cloudflare</button>
+  </form>
+  {{end}}
+</div>
+<p class="muted">On the free plan mailcatcher can only send to verified destination addresses. Adding an address makes Cloudflare email a verification link <b>to that address</b>; its owner has to click it. The list syncs every 5 minutes.</p>
+{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+{{if not $d.Enabled}}<p class="error">Managing addresses from here needs <code>MC_CF_API_TOKEN</code> and <code>MC_CF_ACCOUNT_ID</code>. Until then, add them in the Cloudflare dashboard (Email Routing → Destination addresses).</p>{{end}}
+
+<table class="list">
+  <thead><tr><th>Address</th><th>Status</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range $d.List}}
+  <tr>
+    <td class="mono">{{.Email}}</td>
+    <td>{{if .Verified}}<span class="ok">verified</span>{{else}}<span class="warn">waiting for the owner to click the link</span>{{end}}</td>
+    <td class="nowrap">{{when .CreatedAt}}</td>
+    <td class="nowrap">
+      {{if $d.Enabled}}
+      {{if not .Verified}}
+      <form method="post" action="/destinations" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="email" value="{{.Email}}">
+        <button class="small secondary">Resend link</button>
+      </form>
+      {{end}}
+      {{if $admin}}
+      <form method="post" action="/destinations/remove" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="email" value="{{.Email}}">
+        <button class="small danger">Remove</button>
+      </form>
+      {{end}}
+      {{end}}
+    </td>
+  </tr>
+  {{else}}
+  <tr><td colspan="4" class="empty">{{if $d.Enabled}}No destination addresses yet.{{else}}Not synced.{{end}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+{{if $d.Enabled}}
+<form method="post" action="/destinations" class="card">
+  <h2>Add address</h2>
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="row">
+    <label class="grow">Email <input name="email" type="email" required placeholder="tester@gmail.com"></label>
+    <button>Send verification link</button>
+  </div>
+</form>
+{{end}}
+{{end}}

@@ -15,7 +15,7 @@ type User struct {
 	Username           string
 	Email              string
 	PasswordHash       string
-	Role               string // "admin" | "qa"
+	Role               string // "admin" | "user"
 	Disabled           bool
 	MustChangePassword bool
 	CreatedAt          time.Time

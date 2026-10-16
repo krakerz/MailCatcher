@@ -1,0 +1,13 @@
+{{define "unverified"}}
+{{/* dot: the unverified recipient, or "" */}}
+{{if .}}
+<p class="error-action" data-add-destination="{{.}}">
+  <button type="button" class="small">Send verification link to {{.}}</button>
+  <span data-add-destination-out></span>
+</p>
+{{end}}
+{{end}}
+
+{{define "verified_list"}}
+<datalist id="verified-destinations">{{range .}}<option value="{{.}}"></option>{{end}}</datalist>
+{{end}}

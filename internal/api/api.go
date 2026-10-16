@@ -15,6 +15,7 @@ import (
 	"mailcatcher/internal/auth"
 	"mailcatcher/internal/events"
 	"mailcatcher/internal/mailparse"
+	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/store"
 	"mailcatcher/internal/web"
 )
@@ -25,6 +26,7 @@ const MaxWait = 90 * time.Second
 type API struct {
 	Store  *store.Store
 	Broker *events.Broker
+	Mailer *outbound.Mailer
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -33,6 +35,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/messages/{id}", a.key(a.get))
 	mux.Handle("GET /api/messages/{id}/raw", a.key(a.raw))
 	mux.Handle("GET /api/messages/{id}/attachments/{aid}", a.key(a.attachment))
+	mux.Handle("POST /api/messages/{id}/reply", a.key(a.reply))
+	mux.Handle("POST /api/messages/{id}/forward", a.key(a.forward))
 }
 
 type ctxKey struct{}
@@ -66,7 +70,16 @@ func sameInbox(w http.ResponseWriter, r *http.Request) bool {
 
 func filterFrom(r *http.Request, inboxID int64) (store.Filter, error) {
 	q := r.URL.Query()
-	f := store.Filter{InboxID: inboxID, To: q.Get("to"), From: q.Get("from"), Subject: q.Get("subject")}
+	f := store.Filter{InboxID: inboxID, To: q.Get("to"), From: q.Get("from"), Subject: q.Get("subject"), Direction: "in"}
+	switch d := q.Get("direction"); d {
+	case "", "in":
+	case "out":
+		f.Direction = d
+	case "all":
+		f.Direction = ""
+	default:
+		return f, errors.New("direction: in, out or all")
+	}
 	if s := q.Get("since"); s != "" {
 		t, err := parseTime(s)
 		if err != nil {
@@ -137,7 +150,13 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 			case <-r.Context().Done():
 				return
 			case <-deadline.C:
-				writeJSON(w, map[string]any{"messages": []any{}})
+				// One last look: a message may have landed just before the deadline.
+				msgs, err := a.Store.ListMessages(r.Context(), f)
+				if err != nil {
+					jsonErr(w, http.StatusInternalServerError, "internal error")
+					return
+				}
+				writeJSON(w, map[string]any{"messages": summaries(msgs)})
 				return
 			case e := <-ch:
 				if e.InboxID == f.InboxID {
@@ -156,6 +175,10 @@ func (a *API) deleteMessages(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// Cleanup covers sent copies too unless a direction is asked for explicitly.
+	if r.URL.Query().Get("direction") == "" {
+		f.Direction = ""
 	}
 	n, err := a.Store.DeleteMessages(r.Context(), f)
 	if err != nil {
@@ -309,4 +332,65 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func (a *API) sendFailed(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, outbound.ErrNotVerified):
+		jsonErr(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, outbound.ErrDisabled):
+		jsonErr(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, outbound.ErrUnsupportedAddress):
+		jsonErr(w, http.StatusBadRequest, err.Error())
+	default:
+		slog.Error("api send", "err", err)
+		jsonErr(w, http.StatusBadGateway, err.Error())
+	}
+}
+
+// reply: {"text": "...", "quote": true}
+func (a *API) reply(w http.ResponseWriter, r *http.Request) {
+	m, ok := a.message(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Text  string `json:"text"`
+		Quote *bool  `json:"quote"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		jsonErr(w, http.StatusBadRequest, "body: JSON {\"text\": ..., \"quote\": true}")
+		return
+	}
+	out, err := a.Mailer.Reply(r.Context(), m, outbound.ReplyOptions{Text: body.Text, Quote: body.Quote == nil || *body.Quote})
+	if err != nil {
+		a.sendFailed(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, summary(out))
+}
+
+// forward: {"to": "verified@x", "text": "note", "reply_to_mailcatcher": false}
+func (a *API) forward(w http.ResponseWriter, r *http.Request) {
+	m, ok := a.message(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		To                 string `json:"to"`
+		Text               string `json:"text"`
+		ReplyToMailcatcher bool   `json:"reply_to_mailcatcher"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil || body.To == "" {
+		jsonErr(w, http.StatusBadRequest, "body: JSON {\"to\": \"verified@address\", \"text\": ...}")
+		return
+	}
+	out, err := a.Mailer.Forward(r.Context(), m, outbound.ForwardOptions{To: body.To, Note: body.Text, ReplyToMailcatcher: body.ReplyToMailcatcher})
+	if err != nil {
+		a.sendFailed(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, summary(out))
 }
