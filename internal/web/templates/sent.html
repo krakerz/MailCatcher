@@ -1,0 +1,27 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="bar">
+  <h1>Sent</h1>
+  <a class="button" href="/compose">Compose</a>
+</div>
+<table class="list">
+  <thead><tr><th>From</th><th>To</th><th>Subject</th><th>Sent by</th><th class="r">Sent</th></tr></thead>
+  <tbody>
+  {{range $d.Messages}}
+  <tr>
+    <td class="mono">{{.EnvelopeFrom}}{{with .DecodedTo}}<br><span class="muted">as {{.}}</span>{{end}}</td>
+    <td class="mono">{{.EnvelopeTo}}</td>
+    <td><a href="/m/{{.ID}}">{{orNone .Subject}}</a>{{if .AttachmentCount}} <span class="badge">📎 {{.AttachmentCount}}</span>{{end}}</td>
+    <td>{{with .SentBy}}{{index $d.Users (deref .)}}{{else}}<span class="muted">API</span>{{end}}</td>
+    <td class="r nowrap" title="{{full .ReceivedAt}}">{{when .ReceivedAt}}</td>
+  </tr>
+  {{else}}
+  <tr><td colspan="5" class="empty">Nothing sent yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="paging">
+  {{if $d.Before}}<a href="/sent">Newest</a>{{end}}
+  {{if $d.Older}}<a href="/sent?before={{$d.Older}}">Older →</a>{{end}}
+</p>
+{{end}}

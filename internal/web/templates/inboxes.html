@@ -1,0 +1,59 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$d := .Data}}
+<div class="bar">
+  <h1>Inboxes</h1>
+  <form method="post" action="/admin/inboxes/reroute" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button class="small" title="Route all stored mail again with the current settings">Re-apply routing</button>
+  </form>
+</div>
+{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+{{if $d.Key}}
+<div class="notice">
+  <p>API key for <b>{{$d.KeyFor}}</b> — copy it now, it is not shown again:</p>
+  <pre class="mono">{{$d.Key}}</pre>
+</div>
+{{end}}
+
+<table class="list">
+  <thead><tr><th>ID</th><th>Name</th><th>Receives on</th><th>Address format</th><th>Priority</th><th>API key</th><th></th></tr></thead>
+  <tbody>
+  {{range $d.Inboxes}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td><a href="/inbox/{{.ID}}">{{.Name}}</a>{{if .IsDefault}} <span class="badge">default</span>{{end}}<br><span class="muted mono">{{.Slug}}</span></td>
+    <td class="mono">{{if .Domain}}{{.Domain}}{{else}}{{$d.Domain}}{{end}}</td>
+    <td class="mono">{{.FormatTemplate}}{{if .AssumedTLD}} <span class="muted">(.{{.AssumedTLD}})</span>{{end}}</td>
+    <td>{{if .IsDefault}}<span class="muted">fallback</span>{{else}}{{.Priority}}{{end}}</td>
+    <td>
+      <form method="post" action="/admin/inboxes/{{.ID}}/apikey" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small">{{if .HasAPIKey}}Regenerate{{else}}Generate{{end}}</button>
+      </form>
+    </td>
+    <td><a href="/admin/inboxes/{{.ID}}">Edit</a></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+
+<form method="post" action="/admin/inboxes" class="card">
+  <h2>Add inbox</h2>
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  {{template "inbox_form" (dict "Inbox" $d.Form "Domain" $d.Domain "Presets" $d.Presets)}}
+  <button>Create</button>
+</form>
+
+<h2>How routing works</h2>
+<ul class="muted">
+  <li>Each incoming mail is matched against the inboxes in priority order (lowest first); the first whose domain and format match gets it, and the real address (e.g. <code>b@gmail.com</code>) is shown next to the catch-all address.</li>
+  <li>Mail that matches no inbox goes to the default inbox.</li>
+  <li>Several inboxes on one domain: give each an <code>{inbox}</code> marker, e.g. <code>{inbox}-{local}={domain}</code> → <code>team1-b=gmail.com@{{$d.Domain}}</code>. Or give an inbox its own domain (needs its own Email Routing catch-all).</li>
+</ul>
+
+<h2>Test API</h2>
+<pre class="text">curl -H "Authorization: Bearer $MC_API_KEY" \
+  "https://&lt;app hostname&gt;/api/inboxes/&lt;id&gt;/messages?to=b@gmail.com&amp;wait=30s"</pre>
+<p class="muted">Full reference: <code>docs/API.md</code> in the repository.</p>
+{{end}}

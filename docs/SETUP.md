@@ -85,7 +85,16 @@ From now on every mail to `*@<domain>` reaches the Worker. If the app is not rea
 
 The tunnel's DNS record overrides a wildcard (`*`) record if you have one. If you put Cloudflare Access in front of `<app hostname>`, add a bypass for `/internal/*` — the Worker cannot log in.
 
-## 6. Run the app
+## 6. API token for destination addresses
+
+Lets the app add destination addresses and see which are verified, so testers can do it from the **Destinations** page instead of the Cloudflare dashboard.
+
+1. **My Profile → API Tokens → Create Token → Custom token**, permission *Account → Email Routing Addresses → Edit*, limited to your account.
+2. Note your **Account ID** (shown on the domain's Overview page, right sidebar, or in the dashboard URL).
+
+Optional: without it the app still sends, but you manage addresses in the dashboard.
+
+## 7. Run the app
 
 On the Docker host, in a copy of this repository:
 
@@ -100,6 +109,9 @@ Fill in `.env`:
 | `TUNNEL_TOKEN` | Token from step 5. |
 | `MC_HMAC_SECRET` | The same value you gave `wrangler secret put HMAC_SECRET`. |
 | `MC_DOMAIN` | `<domain>` |
+| `MC_CF_API_TOKEN`, `MC_CF_ACCOUNT_ID` | Token and account ID from step 6 (optional). |
+| `MC_WORKER_URL` | The Worker URL from step 3 (`https://mailcatcher.<subdomain>.workers.dev`). Without it, reply/compose/forward are disabled. |
+| `MC_ADMIN_PASSWORD` | Optional. Password for the first `admin` user. Leave empty to get a random one in the log. |
 
 ```sh
 docker compose up -d
@@ -108,18 +120,20 @@ docker compose logs -f mailcatcher
 
 Data (database, raw mail, attachments) is stored in `./data`.
 
-## 7. Check it works
+**First login:** open `https://<app hostname>`, log in as `admin`. Without `MC_ADMIN_PASSWORD` the generated password is in the log (`docker compose logs mailcatcher | grep "created first user"`) and you are asked to change it right away. Then add QA accounts under **Users**; each gets a temporary password shown once.
+
+## 8. Check it works
 
 1. `curl https://<app hostname>/healthz` → `ok <version>`.
-2. From any mailbox send a mail to `test@<domain>`. The app log shows an `ingest` line with its id.
-3. If nothing arrives, run `npx wrangler tail` in `worker/` while sending again — it shows each mail and any error.
+2. From any mailbox send a mail to `test@<domain>`. It appears in the inbox within seconds (the page updates by itself), and the app log shows an `ingest` line.
+3. Open that mail, click **Reply** and send to an address you verified in step 2; it arrives in that mailbox, threaded with the original.
+4. If nothing arrives, run `npx wrangler tail` in `worker/` while sending again — it shows each mail and any error.
 
 ## Limits and tips
 
 - **Outbound only to verified destination addresses** (max 200 per Cloudflare account). Sending anywhere else fails with `destination address is not a verified address`.
 - **Inbound size**: 25 MiB per message including encoding, so attachments top out around 18 MB.
 - **Spam folder**: a new domain's mail can land in spam even with SPF/DKIM/DMARC passing. In each receiving Gmail account, create a filter `from:(@<domain>)` → *Never send it to Spam*.
-- **Cloudflare API token** (for managing destination addresses from the app — upcoming): My Profile → API Tokens → Custom token with *Account → Email Routing Addresses: Edit* and *Account → Workers KV Storage: Edit*.
 
 ## Troubleshooting
 

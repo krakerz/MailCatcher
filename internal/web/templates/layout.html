@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · mailcatcher</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body data-csrf="{{.CSRF}}">
+{{if .User}}
+<header class="top">
+  <a class="brand" href="/">mailcatcher</a>
+  <nav>
+    <a href="/compose">Compose</a><a href="/sent">Sent</a><a href="/destinations">Destinations</a>
+    {{if .User.IsAdmin}}<a href="/admin/inboxes">Inboxes</a><a href="/admin/users">Users</a>{{end}}
+    <a href="/account/password">{{.User.Username}}</a>
+    <form method="post" action="/logout" class="inline">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="link">Log out</button>
+    </form>
+  </nav>
+</header>
+{{end}}
+<main>
+{{template "content" .}}
+</main>
+</body>
+</html>

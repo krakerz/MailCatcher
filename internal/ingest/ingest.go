@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"mailcatcher/internal/address"
 	"mailcatcher/internal/mailparse"
 	"mailcatcher/internal/sig"
 	"mailcatcher/internal/store"
@@ -25,6 +26,7 @@ const (
 type Handler struct {
 	Store  *store.Store
 	Secret string
+	Domain string // main catch-all domain, for inboxes without their own
 	// OnStored is called after a new (non-duplicate) message is saved.
 	OnStored func(m *store.Message)
 	Now      func() time.Time
@@ -57,11 +59,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unparseable message", http.StatusUnprocessableEntity)
 		return
 	}
-	if m.InboxID, err = h.Store.DefaultInboxID(r.Context()); err != nil {
-		slog.Error("ingest: default inbox", "err", err)
+	inboxes, err := h.Store.ListInboxes(r.Context())
+	if err != nil {
+		slog.Error("ingest: inboxes", "err", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
+	m.InboxID, m.DecodedTo = address.Route(inboxes, h.Domain, m.EnvelopeTo)
 	m.ReceivedAt = now()
 
 	dup, err := h.Store.InsertMessage(r.Context(), m, raw, atts)
@@ -70,7 +74,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("ingest", "id", m.ID, "dup", dup, "from", m.EnvelopeFrom, "to", m.EnvelopeTo, "size", m.Size)
+	slog.Info("ingest", "id", m.ID, "dup", dup, "inbox", m.InboxID, "from", m.EnvelopeFrom, "to", m.EnvelopeTo, "decoded", m.DecodedTo, "size", m.Size)
 	if !dup && h.OnStored != nil {
 		h.OnStored(m)
 	}

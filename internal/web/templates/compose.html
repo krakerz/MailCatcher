@@ -1,0 +1,26 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Compose</h1>
+{{with $d.Err}}<p class="error">{{.}}</p>{{end}}
+{{template "unverified" $d.Unverified}}
+<form method="post" action="/compose" enctype="multipart/form-data" class="card" data-compose>
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="row">
+    <label>Inbox
+      <select name="inbox" data-compose-inbox>
+        {{range $d.Inboxes}}<option value="{{.ID}}"{{if eq .ID $d.InboxID}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    </label>
+    <label class="grow">Send as <span class="muted">(real address, e.g. b@gmail.com)</span>
+      <input name="identity" value="{{$d.Identity}}" required data-compose-identity>
+    </label>
+  </div>
+  <p class="mono muted" data-compose-from></p>
+  <label>To <span class="muted">(must be a verified destination address)</span> <input name="to" type="email" value="{{$d.To}}" required list="verified-destinations" autocomplete="off"></label>
+  <label>Subject <input name="subject" value="{{$d.Subject}}"></label>
+  <label>Message <textarea name="text" rows="10">{{$d.Text}}</textarea></label>
+  <label>Attachments <input type="file" name="files" multiple></label>
+  <button>Send</button>
+</form>
+{{template "verified_list" $d.Verified}}
+{{end}}

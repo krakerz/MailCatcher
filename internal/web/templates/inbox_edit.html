@@ -1,0 +1,31 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$d := .Data}}
+<p class="crumbs"><a href="/admin/inboxes">← Inboxes</a></p>
+<h1>Edit {{$d.Inbox.Name}}{{if $d.Inbox.IsDefault}} <span class="badge">default</span>{{end}}</h1>
+{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+
+<form method="post" action="/admin/inboxes/{{$d.Inbox.ID}}" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  {{template "inbox_form" (dict "Inbox" $d.Inbox "Domain" $d.Domain "Presets" $d.Presets)}}
+  <button name="action" value="save">Save</button>
+</form>
+
+{{if not $d.Inbox.IsDefault}}
+<form method="post" action="/admin/inboxes/{{$d.Inbox.ID}}" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <h2>Make default</h2>
+  <p class="muted">The default inbox receives all mail that matches no other inbox.</p>
+  <button name="action" value="default">Make default</button>
+</form>
+
+<form method="post" action="/admin/inboxes/{{$d.Inbox.ID}}" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <h2>Delete</h2>
+  <p class="muted">Deletes the inbox and all its messages. Type <code>{{$d.Inbox.Slug}}</code> to confirm.</p>
+  <div class="row">
+    <input name="confirm" autocomplete="off">
+    <button class="danger" name="action" value="delete">Delete inbox</button>
+  </div>
+</form>
+{{end}}
+{{end}}
