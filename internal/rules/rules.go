@@ -68,28 +68,140 @@ func GlobRegex(glob string) string {
 	return "^" + strings.Join(parts, ".*") + "$"
 }
 
-// Compile returns the Worker rules for the enabled rules. A rule whose inbox no
-// longer exists or cannot match is dropped.
+// Compile returns the Worker rules for the enabled rules. A rule's address is
+// either empty/"*" (any), a catch-all pattern (its domain is one of ours), or a
+// real recipient such as any@example.com: that is encoded with the format of
+// each inbox it applies to (its own inbox, or every inbox for "any inbox"), so
+// the Worker matches exactly the catch-all addresses that decode to it. Inboxes
+// that cannot express the address are skipped; duplicate destinations are
+// collapsed at match time.
 func Compile(list []*store.ForwardRule, inboxes []*store.Inbox, mainDomain string) []WorkerRule {
 	exprs := inboxExprs(inboxes, mainDomain)
 	out := []WorkerRule{}
 	for _, r := range list {
-		if !r.Enabled {
-			continue
+		if r.Enabled {
+			out = append(out, compileRule(r, inboxes, exprs, mainDomain)...)
 		}
-		wr := WorkerRule{All: []string{}, None: []string{}, Destination: strings.ToLower(r.Destination)}
+	}
+	return out
+}
+
+func compileRule(r *store.ForwardRule, inboxes []*store.Inbox, exprs map[int64]WorkerRule, mainDomain string) []WorkerRule {
+	dest := strings.ToLower(r.Destination)
+	inScope := func(in *store.Inbox) (WorkerRule, bool) {
+		e, ok := exprs[in.ID]
+		return WorkerRule{All: slices.Clone(e.All), None: slices.Clone(e.None), Destination: dest}, ok
+	}
+	glob := strings.ToLower(strings.TrimSpace(r.AddressGlob))
+
+	if glob == "" || glob == "*" || IsCatchAllPattern(glob, inboxes, mainDomain) {
+		wr := WorkerRule{All: []string{}, None: []string{}, Destination: dest}
 		if r.InboxID != 0 {
 			e, ok := exprs[r.InboxID]
 			if !ok {
-				continue
+				return nil
 			}
-			wr.All = append(wr.All, e.All...)
-			wr.None = append(wr.None, e.None...)
+			wr.All, wr.None = append(wr.All, e.All...), append(wr.None, e.None...)
 		}
-		if g := GlobRegex(r.AddressGlob); g != "" {
+		if g := GlobRegex(glob); g != "" {
 			wr.All = append(wr.All, g)
 		}
+		return []WorkerRule{wr}
+	}
+
+	// A real recipient: one variant per inbox, with that inbox's encoding.
+	var out []WorkerRule
+	for _, in := range inboxes {
+		if r.InboxID != 0 && in.ID != r.InboxID {
+			continue
+		}
+		f, err := address.For(in)
+		if err != nil {
+			continue
+		}
+		local, err := encodePattern(f, glob)
+		if err != nil || !listAccepts(in, f, glob, mainDomain) {
+			continue
+		}
+		wr, ok := inScope(in)
+		if !ok {
+			continue
+		}
+		wr.All = append(wr.All, "^"+local+"@"+regexp.QuoteMeta(address.CatchDomain(in, mainDomain))+"$")
 		out = append(out, wr)
+	}
+	return out
+}
+
+// IsCatchAllPattern reports whether a rule address names our own catch-all
+// addresses (its domain is the main domain or an inbox's own domain).
+func IsCatchAllPattern(glob string, inboxes []*store.Inbox, mainDomain string) bool {
+	_, domain, ok := address.Split(glob)
+	if !ok {
+		return true // "*", "team1-*" and the like: treat as a pattern
+	}
+	if strings.EqualFold(domain, mainDomain) || domain == "*" {
+		return true
+	}
+	for _, in := range inboxes {
+		if in.Domain != "" && strings.EqualFold(in.Domain, domain) {
+			return true
+		}
+	}
+	return false
+}
+
+// starMarker stands in for "*" while encoding: letters only, so every format accepts it.
+const starMarker = "zqzstarzqz"
+
+// encodePattern encodes a real address that may use "*" in its local part and
+// returns the encoded local part as a regex.
+func encodePattern(f *address.Format, real string) (string, error) {
+	local, domain, ok := address.Split(real)
+	if !ok || strings.Contains(domain, "*") {
+		return "", address.ErrUnsupported
+	}
+	enc, err := f.Encode(strings.ReplaceAll(local, "*", starMarker) + "@" + domain)
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(regexp.QuoteMeta(enc), starMarker, ".*"), nil
+}
+
+// listAccepts: an inbox with an address list only receives listed addresses, so
+// the encoded address (a sample, for wildcards) must be on its list.
+func listAccepts(in *store.Inbox, f *address.Format, real, mainDomain string) bool {
+	if len(in.Addresses) == 0 {
+		return true
+	}
+	local, domain, _ := address.Split(real)
+	enc, err := f.Encode(strings.ReplaceAll(local, "*", "x") + "@" + domain)
+	return err == nil && address.MatchesAny(in.Addresses, enc+"@"+address.CatchDomain(in, mainDomain))
+}
+
+// Reach returns the names of the inboxes a rule can match in (for the UI);
+// empty means the rule never fires.
+func Reach(r *store.ForwardRule, inboxes []*store.Inbox, mainDomain string) []string {
+	exprs := inboxExprs(inboxes, mainDomain)
+	glob := strings.ToLower(strings.TrimSpace(r.AddressGlob))
+	var out []string
+	for _, in := range inboxes {
+		if r.InboxID != 0 && in.ID != r.InboxID {
+			continue
+		}
+		if _, ok := exprs[in.ID]; !ok {
+			continue
+		}
+		if glob != "" && glob != "*" && !IsCatchAllPattern(glob, inboxes, mainDomain) {
+			f, err := address.For(in)
+			if err != nil {
+				continue
+			}
+			if _, err := encodePattern(f, glob); err != nil || !listAccepts(in, f, glob, mainDomain) {
+				continue
+			}
+		}
+		out = append(out, in.Name)
 	}
 	return out
 }

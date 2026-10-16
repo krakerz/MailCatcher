@@ -30,6 +30,8 @@
 - Rich editor for reply and compose: formatting, links and inline images (sent as HTML with a text version)
 - Per-user read state: unread mail is highlighted and counted, with mark unread and mark all read
 - Inbox Refresh button collects mail still waiting at Cloudflare
+- Forward rules match the real recipient (e.g. `any@example.com`) in each inbox's address format; overlapping rules forward once per destination; rules that can never fire are flagged
+- Testing an address on the Rules page warns when it is malformed or its domain is not one of yours
 - Select messages in the inbox and Sent lists to mark read, mark unread or delete them; delete from the message page
 - Empty lists show their message centred
 - Sent can be filtered per inbox and shows each message's inbox

@@ -127,3 +127,74 @@ console.log(JSON.stringify(addrs.map((a) => matchRules(rules, a))));`), 0o600)
 		}
 	}
 }
+
+// Rule addresses are real recipients, decoded per inbox: the scenario from the
+// feature request, with overlapping rules collapsing duplicate destinations.
+func TestRealAddressRules(t *testing.T) {
+	boxes := []*store.Inbox{
+		{ID: 1, Name: "Default", Slug: "default", FormatTemplate: "{local}~{domain}", IsDefault: true},
+		{ID: 2, Name: "inb1", Slug: "team1", FormatTemplate: "{inbox}.{local}~{domain}"},
+		{ID: 3, Name: "dotcom", Slug: "dc", FormatTemplate: "{local}.{name}", AssumedTLD: "com", Addresses: []string{"pinned@main.test"}},
+	}
+	list := []*store.ForwardRule{
+		{AddressGlob: "Someone@Live.com", Destination: "x@dest.test", Enabled: true},             // any inbox
+		{InboxID: 2, AddressGlob: "someone@live.com", Destination: "x@dest.test", Enabled: true}, // overlaps: same target
+		{InboxID: 2, AddressGlob: "someone@live.com", Destination: "y@dest.test", Enabled: true},
+		{InboxID: 2, AddressGlob: "*@example.org", Destination: "z@dest.test", Enabled: true}, // wildcard local part
+		{AddressGlob: "team1.*@main.test", Destination: "p@dest.test", Enabled: true},         // catch-all pattern (our domain)
+	}
+	compiled := Compile(list, boxes, "main.test")
+	cases := map[string][]string{
+		"team1.someone~live.com@main.test": {"x@dest.test", "y@dest.test", "p@dest.test"},
+		"someone~live.com@main.test":       {"x@dest.test"},
+		"team1.other~live.com@main.test":   {"p@dest.test"},
+		"team1.qa~example.org@main.test":   {"z@dest.test", "p@dest.test"},
+		"qa~example.org@main.test":         nil, // Default: the wildcard rule is inb1-only
+		"someone~live.com@other.test":      nil,
+	}
+	for rcpt, want := range cases {
+		if got := Match(compiled, rcpt); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v, want %v", rcpt, got, want)
+		}
+	}
+	// "dotcom" could encode a@live.com, but its address list only takes pinned@….
+	if r := Reach(&store.ForwardRule{AddressGlob: "a@live.com"}, boxes, "main.test"); !reflect.DeepEqual(r, []string{"Default", "inb1"}) {
+		t.Errorf("reach: %v", r)
+	}
+	if r := Reach(&store.ForwardRule{InboxID: 3, AddressGlob: "a@live.com"}, boxes, "main.test"); len(r) != 0 {
+		t.Errorf("unreachable rule reported as reaching %v", r)
+	}
+	assertWorkerAgrees(t, compiled, []string{"team1.someone~live.com@main.test", "someone~live.com@main.test", "team1.qa~example.org@main.test", "qa~example.org@main.test"})
+}
+
+func assertWorkerAgrees(t *testing.T, compiled []WorkerRule, rcpts []string) {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	in, _ := json.Marshal(map[string]any{"rules": compiled, "addrs": rcpts})
+	rulesJS, _ := filepath.Abs("../../worker/src/rules.js")
+	script := filepath.Join(t.TempDir(), "check.mjs")
+	os.WriteFile(script, []byte(`import { matchRules } from "file://`+rulesJS+`";
+let s = ""; for await (const c of process.stdin) s += c;
+const { rules, addrs } = JSON.parse(s);
+console.log(JSON.stringify(addrs.map((a) => matchRules(rules, a))));`), 0o600)
+	cmd := exec.Command(node, script)
+	cmd.Stdin = strings.NewReader(string(in))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	var js [][]string
+	json.Unmarshal(out, &js)
+	for i, a := range rcpts {
+		goRes := Match(compiled, a)
+		if goRes == nil {
+			goRes = []string{}
+		}
+		if !reflect.DeepEqual(goRes, js[i]) {
+			t.Errorf("%s: Go %v, Worker %v", a, goRes, js[i])
+		}
+	}
+}

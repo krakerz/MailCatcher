@@ -15,7 +15,9 @@ type ruleRow struct {
 	*store.ForwardRule
 	InboxName string
 	Verified  bool
-	Known     bool // destination is in the synced list
+	Known     bool     // destination is in the synced list
+	Pattern   bool     // address is a catch-all pattern rather than a real recipient
+	Reach     []string // inboxes the rule can fire in
 }
 
 type rulesData struct {
@@ -29,6 +31,7 @@ type rulesData struct {
 	Test       string
 	TestInbox  string
 	TestResult []string
+	TestWarn   string // the address is malformed or not on one of our domains
 	Tested     bool
 	Notice     string
 	Error      string
@@ -49,11 +52,12 @@ func (s *Server) renderRules(w http.ResponseWriter, r *http.Request, d rulesData
 			list = append(list, rl)
 		}
 	}
-	if d.Inboxes, err = s.Store.ListInboxes(ctx); err != nil {
+	allInboxes, err := s.Store.ListInboxes(ctx)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	d.Inboxes, d.AnyAllowed = c.visible(d.Inboxes), c.canManageRule(0)
+	d.Inboxes, d.AnyAllowed = c.visible(allInboxes), c.canManageRule(0)
 	names := map[int64]string{}
 	for _, in := range d.Inboxes {
 		names[in.ID] = in.Name
@@ -68,7 +72,9 @@ func (s *Server) renderRules(w http.ResponseWriter, r *http.Request, d rulesData
 	}
 	for _, rl := range list {
 		v, known := status[strings.ToLower(rl.Destination)]
-		d.Rules = append(d.Rules, ruleRow{ForwardRule: rl, InboxName: names[rl.InboxID], Verified: v, Known: known})
+		row := ruleRow{ForwardRule: rl, InboxName: names[rl.InboxID], Verified: v, Known: known,
+			Pattern: rules.IsCatchAllPattern(strings.ToLower(rl.AddressGlob), d.Inboxes, s.Domain), Reach: rules.Reach(rl, allInboxes, s.Domain)}
+		d.Rules = append(d.Rules, row)
 	}
 	d.Domain = s.Domain
 	if s.Rules != nil {
@@ -105,6 +111,11 @@ func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		d.Tested, d.TestResult = true, rules.Match(rules.Compile(mine, inboxes, s.Domain), d.Test)
+		if _, domain, ok := address.Split(d.Test); !ok {
+			d.TestWarn = "This is not a valid email address."
+		} else if !address.OwnDomain(inboxes, s.Domain, domain) {
+			d.TestWarn = "The domain " + domain + " is not one of yours (main domain: " + s.Domain + "). Mail to it never reaches mailcatcher. Check for a typo."
+		}
 		{
 			id, decoded := address.Route(inboxes, s.Domain, d.Test)
 			d.TestInbox = "an inbox you cannot open"

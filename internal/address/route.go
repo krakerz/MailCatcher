@@ -95,6 +95,26 @@ func MatchesAny(globs []string, addr string) bool {
 	return false
 }
 
+// OwnDomain reports whether domain receives mail for any inbox: the main
+// domain, an inbox's own domain, or the domain of an inbox's address glob.
+func OwnDomain(inboxes []*store.Inbox, mainDomain, domain string) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == strings.ToLower(mainDomain) {
+		return true
+	}
+	for _, in := range inboxes {
+		if in.Domain != "" && strings.EqualFold(in.Domain, domain) {
+			return true
+		}
+		for _, g := range in.Addresses {
+			if _, gd, ok := Split(g); ok && MatchesAny([]string{gd}, domain) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func domainMatches(in *store.Inbox, mainDomain, domain string) bool {
 	if in.Domain != "" {
 		return strings.EqualFold(in.Domain, domain)
