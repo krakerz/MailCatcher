@@ -1,0 +1,51 @@
+{{define "content"}}
+{{$d := .Data}}{{$m := $d.M}}
+<p class="crumbs"><a href="/inbox/{{$d.Inbox.ID}}">← {{$d.Inbox.Name}}</a>{{with $m.ParentID}} · <a href="/m/{{.}}">In reply to an earlier message</a>{{end}}</p>
+<h1>{{orNone $m.Subject}}</h1>
+
+<table class="meta">
+  <tr><th>From</th><td>{{addr $m.From}}</td></tr>
+  <tr><th>To</th><td>{{addrs $m.To}}</td></tr>
+  {{if $m.Cc}}<tr><th>Cc</th><td>{{addrs $m.Cc}}</td></tr>{{end}}
+  <tr><th>Envelope</th><td class="mono">{{$m.EnvelopeFrom}} → {{$m.EnvelopeTo}}{{with $m.DecodedTo}} <span class="muted">(real recipient {{.}})</span>{{end}}</td></tr>
+  <tr><th>Date</th><td>{{full $m.Date}} <span class="muted">· received {{full $m.ReceivedAt}}</span></td></tr>
+  <tr><th>Size</th><td>{{size $m.Size}}</td></tr>
+  {{if $m.Codes}}<tr><th>Codes</th><td>{{range $m.Codes}}<span class="code big">{{.}}</span> {{end}}</td></tr>{{end}}
+</table>
+
+{{if $d.Attachments}}
+<h2>Attachments</h2>
+<ul class="atts">
+{{range $d.Attachments}}{{if not .Inline}}
+  <li><a href="/m/{{$m.ID}}/att/{{.ID}}">{{if .Filename}}{{.Filename}}{{else}}attachment-{{.ID}}{{end}}</a> <span class="muted">{{.ContentType}} · {{size .Size}}</span></li>
+{{end}}{{end}}
+</ul>
+{{end}}
+
+{{if $m.HTML}}
+<div class="bar">
+  <h2>HTML</h2>
+  {{if $d.Images}}<a href="/m/{{$m.ID}}">Block remote images</a>{{else}}<a href="/m/{{$m.ID}}?images=1">Load remote images</a>{{end}}
+</div>
+<iframe class="body" sandbox="allow-popups allow-popups-to-escape-sandbox" src="/m/{{$m.ID}}/body{{if $d.Images}}?images=1{{end}}" title="Message body"></iframe>
+{{end}}
+
+<details{{if not $m.HTML}} open{{end}}>
+  <summary>Plain text</summary>
+  <pre class="text">{{$m.Text}}</pre>
+</details>
+
+{{if $m.Links}}
+<details open>
+  <summary>Links ({{len $m.Links}})</summary>
+  <ul class="links">{{range $m.Links}}<li><a href="{{.}}" target="_blank" rel="noopener noreferrer">{{.}}</a></li>{{end}}</ul>
+</details>
+{{end}}
+
+<details>
+  <summary>Headers</summary>
+  <pre class="text">{{$d.Headers}}</pre>
+</details>
+
+<p><a href="/m/{{$m.ID}}/raw">View source</a> · <a href="/m/{{$m.ID}}/raw?download=1">Download .eml</a></p>
+{{end}}

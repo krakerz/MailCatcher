@@ -1,0 +1,35 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+<h1>Inboxes</h1>
+{{if .Data.Key}}
+<div class="notice">
+  <p>API key for <b>{{.Data.KeyFor}}</b> — copy it now, it is not shown again:</p>
+  <pre class="mono">{{.Data.Key}}</pre>
+</div>
+{{end}}
+<table class="list">
+  <thead><tr><th>ID</th><th>Name</th><th>Address format</th><th>Default</th><th>API key</th></tr></thead>
+  <tbody>
+  {{range .Data.Inboxes}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td><a href="/inbox/{{.ID}}">{{.Name}}</a></td>
+    <td class="mono">{{.FormatTemplate}}</td>
+    <td>{{if .IsDefault}}yes{{end}}</td>
+    <td>
+      <form method="post" action="/admin/inboxes/{{.ID}}/apikey" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small">{{if .HasAPIKey}}Regenerate{{else}}Generate{{end}}</button>
+      </form>
+      {{if .HasAPIKey}}<span class="muted">set — regenerating revokes the old key</span>{{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h2>Test API</h2>
+<pre class="text">curl -H "Authorization: Bearer $MC_API_KEY" \
+  "https://&lt;app hostname&gt;/api/inboxes/1/messages?to=b.gmail@&lt;domain&gt;&amp;wait=30s"</pre>
+<p class="muted">See the README for all endpoints.</p>
+{{end}}

@@ -100,6 +100,7 @@ Fill in `.env`:
 | `TUNNEL_TOKEN` | Token from step 5. |
 | `MC_HMAC_SECRET` | The same value you gave `wrangler secret put HMAC_SECRET`. |
 | `MC_DOMAIN` | `<domain>` |
+| `MC_ADMIN_PASSWORD` | Optional. Password for the first `admin` user. Leave empty to get a random one in the log. |
 
 ```sh
 docker compose up -d
@@ -108,10 +109,12 @@ docker compose logs -f mailcatcher
 
 Data (database, raw mail, attachments) is stored in `./data`.
 
+**First login:** open `https://<app hostname>`, log in as `admin`. Without `MC_ADMIN_PASSWORD` the generated password is in the log (`docker compose logs mailcatcher | grep "created first user"`) and you are asked to change it right away. Then add QA accounts under **Users**; each gets a temporary password shown once.
+
 ## 7. Check it works
 
 1. `curl https://<app hostname>/healthz` → `ok <version>`.
-2. From any mailbox send a mail to `test@<domain>`. The app log shows an `ingest` line with its id.
+2. From any mailbox send a mail to `test@<domain>`. It appears in the inbox within seconds (the page updates by itself), and the app log shows an `ingest` line.
 3. If nothing arrives, run `npx wrangler tail` in `worker/` while sending again — it shows each mail and any error.
 
 ## Limits and tips

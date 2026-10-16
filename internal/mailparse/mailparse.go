@@ -173,6 +173,8 @@ const codeWindow = 80
 // uppercase alphanumerics (with at least one digit and one letter) that follow a
 // code-ish keyword closely, plus digit-only codes standing alone on a line.
 func Codes(text string) []string {
+	// Blank out URLs (keeping offsets) so query-string numbers are not taken as codes.
+	text = textURLRe.ReplaceAllStringFunc(text, func(u string) string { return strings.Repeat(" ", len(u)) })
 	kw := codeKeywordRe.FindAllStringIndex(text, -1)
 	seen := map[string]bool{}
 	var out []string

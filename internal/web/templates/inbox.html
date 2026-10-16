@@ -1,0 +1,36 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="bar">
+  <h1>{{$d.Inbox.Name}}</h1>
+  {{if gt (len $d.Inboxes) 1}}
+  <nav class="tabs">{{range $d.Inboxes}}<a href="/inbox/{{.ID}}"{{if eq .ID $d.Inbox.ID}} class="active"{{end}}>{{.Name}}</a>{{end}}</nav>
+  {{end}}
+  <form method="get" class="search">
+    <input name="q" value="{{$d.Q}}" placeholder="Search to / from / subject" type="search">
+    <button>Search</button>
+    {{if $d.Q}}<a href="/inbox/{{$d.Inbox.ID}}">Clear</a>{{end}}
+  </form>
+</div>
+<table class="list" id="messages" data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}">
+  <thead><tr><th>From</th><th>To</th><th>Subject</th><th>Codes</th><th class="r">Received</th></tr></thead>
+  <tbody>{{template "rows" $d}}</tbody>
+</table>
+<p class="paging">
+  {{if $d.Before}}<a href="/inbox/{{$d.Inbox.ID}}{{with $d.Q}}?q={{.}}{{end}}">Newest</a>{{end}}
+  {{if $d.Older}}<a href="/inbox/{{$d.Inbox.ID}}?before={{$d.Older}}{{with $d.Q}}&q={{.}}{{end}}">Older →</a>{{end}}
+</p>
+{{end}}
+
+{{define "rows"}}
+{{range .Messages}}
+<tr class="dir-{{.Direction}}">
+  <td><a href="/m/{{.ID}}">{{if .From.Name}}{{.From.Name}}{{else}}{{.From.Address}}{{end}}</a></td>
+  <td class="mono">{{.EnvelopeTo}}{{with .DecodedTo}}<br><span class="muted">→ {{.}}</span>{{end}}</td>
+  <td><a href="/m/{{.ID}}">{{orNone .Subject}}</a>{{if .AttachmentCount}} <span class="badge">📎 {{.AttachmentCount}}</span>{{end}}</td>
+  <td class="mono">{{range .Codes}}<span class="code">{{.}}</span> {{end}}</td>
+  <td class="r nowrap" title="{{full .ReceivedAt}}">{{when .ReceivedAt}}</td>
+</tr>
+{{else}}
+<tr><td colspan="5" class="empty">No messages{{if .Q}} match “{{.Q}}”{{end}}.</td></tr>
+{{end}}
+{{end}}

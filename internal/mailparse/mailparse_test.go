@@ -129,6 +129,7 @@ func TestCodes(t *testing.T) {
 		{"Verification code: 1111. Your code again: 1111", []string{"1111"}},
 		{"Your code is ABCDEF", nil},          // letters only
 		{"PIN 123456789012 is too long", nil}, // > 10 chars
+		{"Your code is 839201\nConfirm (https://x.io/c?x=8114)", []string{"839201"}},
 	}
 	for _, c := range cases {
 		if got := Codes(c.text); !reflect.DeepEqual(got, c.want) {

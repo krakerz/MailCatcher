@@ -5,6 +5,7 @@ services:
     environment:
       MC_DOMAIN: ${MC_DOMAIN}
       MC_HMAC_SECRET: ${MC_HMAC_SECRET}
+      MC_ADMIN_PASSWORD: ${MC_ADMIN_PASSWORD:-}
     volumes:
       - ./data:/data
     # No published ports: reachable only through the tunnel (http://mailcatcher:8080).

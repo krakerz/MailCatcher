@@ -10,10 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	"mailcatcher/internal/api"
 	"mailcatcher/internal/config"
+	"mailcatcher/internal/events"
 	"mailcatcher/internal/ingest"
 	"mailcatcher/internal/store"
 	"mailcatcher/internal/version"
+	"mailcatcher/internal/web"
 )
 
 func main() {
@@ -30,15 +33,30 @@ func main() {
 	}
 	defer st.Close()
 
+	if err := web.Bootstrap(context.Background(), st, cfg.AdminPassword); err != nil {
+		slog.Error("bootstrap admin", "err", err)
+		os.Exit(1)
+	}
+
+	broker := events.NewBroker()
+	ui, err := web.New(st, broker, cfg.CookieSecure)
+	if err != nil {
+		slog.Error("templates", "err", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("POST /internal/ingest", &ingest.Handler{Store: st, Secret: cfg.HMACSecret})
+	mux.Handle("POST /internal/ingest", &ingest.Handler{Store: st, Secret: cfg.HMACSecret,
+		OnStored: func(m *store.Message) { broker.Publish(events.Event{MessageID: m.ID, InboxID: m.InboxID}) }})
+	(&api.API{Store: st, Broker: broker}).Register(mux)
+	ui.Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok " + version.Version + "\n"))
 	})
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           mux,
+		Handler:           web.SecurityHeaders(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

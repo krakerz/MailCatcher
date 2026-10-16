@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -44,6 +43,8 @@ type Message struct {
 	DecodedTo    string
 	SentBy       *int64
 	ParentID     *int64
+
+	AttachmentCount int // non-inline attachments; filled by reads only
 }
 
 type Attachment struct {
@@ -206,45 +207,11 @@ func findParent(ctx context.Context, tx *sql.Tx, m *Message) (*int64, error) {
 }
 
 func (s *Store) GetMessage(ctx context.Context, id int64) (*Message, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, inbox_id, direction, message_id, in_reply_to, refs,
-		envelope_from, envelope_to, from_name, from_addr, to_json, cc_json, subject, date, received_at,
-		size, raw_path, raw_sha256, text, html, links, codes, decoded_to, sent_by, parent_id
-		FROM messages WHERE id = ?`, id)
-	var (
-		m                          Message
-		refs, to, cc, links, codes string
-		date                       sql.NullInt64
-		received                   int64
-		sentBy, parent             sql.NullInt64
-	)
-	err := row.Scan(&m.ID, &m.InboxID, &m.Direction, &m.MessageID, &m.InReplyTo, &refs,
-		&m.EnvelopeFrom, &m.EnvelopeTo, &m.From.Name, &m.From.Address, &to, &cc, &m.Subject, &date, &received,
-		&m.Size, &m.RawPath, &m.RawSHA256, &m.Text, &m.HTML, &links, &codes, &m.DecodedTo, &sentBy, &parent)
+	m, err := scanMessage(s.db.QueryRowContext(ctx, "SELECT "+msgCols+", text, html FROM messages WHERE id = ?", id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range []struct {
-		src string
-		dst any
-	}{{refs, &m.References}, {to, &m.To}, {cc, &m.Cc}, {links, &m.Links}, {codes, &m.Codes}} {
-		if err := json.Unmarshal([]byte(f.src), f.dst); err != nil {
-			return nil, fmt.Errorf("message %d: %w", id, err)
-		}
-	}
-	if date.Valid {
-		m.Date = time.UnixMilli(date.Int64)
-	}
-	m.ReceivedAt = time.UnixMilli(received)
-	if sentBy.Valid {
-		m.SentBy = &sentBy.Int64
-	}
-	if parent.Valid {
-		m.ParentID = &parent.Int64
-	}
-	return &m, nil
+	return m, err
 }
 
 func (s *Store) Attachments(ctx context.Context, messageID int64) ([]Attachment, error) {
