@@ -44,3 +44,30 @@ func TestRoutePriority(t *testing.T) {
 		t.Errorf("priority ignored: got inbox %d", id)
 	}
 }
+
+// The scenario from the README: specific addresses pinned to inboxes.
+func TestRouteAddressLists(t *testing.T) {
+	inboxes := []*store.Inbox{
+		{ID: 1, Slug: "default", FormatTemplate: "{local}.{name}", AssumedTLD: "com", IsDefault: true},
+		{ID: 2, Slug: "inbox-a", FormatTemplate: "{local}.{name}", AssumedTLD: "com", Addresses: []string{"b.gmail@main.test"}},
+		{ID: 3, Slug: "inbox-c", FormatTemplate: "{local}={domain}", Addresses: []string{"support@main.test", "qa-*@main.test"}},
+		{ID: 4, Slug: "team1", FormatTemplate: "{inbox}-{local}={domain}"},
+	}
+	cases := []struct {
+		rcpt    string
+		inbox   int64
+		decoded string
+	}{
+		{"a.gmail@main.test", 1, "a@gmail.com"},
+		{"B.Gmail@main.test", 2, "b@gmail.com"},
+		{"support@main.test", 3, ""},
+		{"qa-anything@main.test", 3, ""},
+		{"team1-x=yahoo.com@main.test", 4, "x@yahoo.com"},
+		{"b.gmail@other.test", 1, ""}, // the list is exact, domain included
+	}
+	for _, c := range cases {
+		if id, dec := Route(inboxes, "main.test", c.rcpt); id != c.inbox || dec != c.decoded {
+			t.Errorf("Route(%s) = %d %q, want %d %q", c.rcpt, id, dec, c.inbox, c.decoded)
+		}
+	}
+}

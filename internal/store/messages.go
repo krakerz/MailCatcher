@@ -44,7 +44,8 @@ type Message struct {
 	SentBy       *int64
 	ParentID     *int64
 
-	AttachmentCount int // non-inline attachments; filled by reads only
+	AutoForwarded   []string // destinations the Worker forwarded this inbound mail to
+	AttachmentCount int      // non-inline attachments; filled by reads only
 }
 
 type Attachment struct {
@@ -128,11 +129,11 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message, raw []byte, atts 
 	res, err := tx.ExecContext(ctx, `INSERT INTO messages (
 		inbox_id, direction, message_id, in_reply_to, refs, envelope_from, envelope_to,
 		from_name, from_addr, to_json, cc_json, subject, date, received_at, size,
-		raw_sha256, text, html, links, codes, decoded_to, sent_by, parent_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		raw_sha256, text, html, links, codes, decoded_to, sent_by, parent_id, auto_forwarded)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		m.InboxID, m.Direction, m.MessageID, m.InReplyTo, jsonStr(m.References), m.EnvelopeFrom, m.EnvelopeTo,
 		m.From.Name, m.From.Address, jsonStr(m.To), jsonStr(m.Cc), m.Subject, msOrNil(m.Date), m.ReceivedAt.UnixMilli(), m.Size,
-		m.RawSHA256, m.Text, m.HTML, jsonStr(m.Links), jsonStr(m.Codes), m.DecodedTo, m.SentBy, m.ParentID)
+		m.RawSHA256, m.Text, m.HTML, jsonStr(m.Links), jsonStr(m.Codes), m.DecodedTo, m.SentBy, m.ParentID, jsonStr(m.AutoForwarded))
 	if err != nil {
 		// Lost a race with a concurrent ingest of the same bytes.
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: messages.raw_sha256") {

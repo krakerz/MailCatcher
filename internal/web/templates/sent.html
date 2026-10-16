@@ -1,27 +1,35 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="bar">
+<div class="page-head">
   <h1>Sent</h1>
-  <a class="button" href="/compose">Compose</a>
+  <nav class="tabs">
+    <a href="/sent"{{if not $d.InboxID}} class="active"{{end}}>All inboxes</a>
+    {{range $d.Inboxes}}<a href="/sent?inbox={{.ID}}"{{if eq .ID $d.InboxID}} class="active"{{end}}>{{.Name}}</a>{{end}}
+  </nav>
+  <span class="spacer"></span>
+  <a class="button" href="/compose{{with $d.InboxID}}?inbox={{.}}{{end}}">{{icon "square-pen"}} Compose</a>
 </div>
+{{template "bulkbar" (dict "CSRF" .CSRF "Back" (printf "/sent?inbox=%d" $d.InboxID) "Read" false)}}
 <table class="list">
-  <thead><tr><th>From</th><th>To</th><th>Subject</th><th>Sent by</th><th class="r">Sent</th></tr></thead>
+  <thead><tr><th class="pick"></th><th>Inbox</th><th>From</th><th>To</th><th>Subject</th><th>Sent by</th><th class="r">Sent</th></tr></thead>
   <tbody>
   {{range $d.Messages}}
   <tr>
+    <td class="pick"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" data-bulk-item aria-label="Select"></td>
+    <td><span class="badge accent">{{index $d.Names .InboxID}}</span></td>
     <td class="mono">{{.EnvelopeFrom}}{{with .DecodedTo}}<br><span class="muted">as {{.}}</span>{{end}}</td>
     <td class="mono">{{.EnvelopeTo}}</td>
-    <td><a href="/m/{{.ID}}">{{orNone .Subject}}</a>{{if .AttachmentCount}} <span class="badge">📎 {{.AttachmentCount}}</span>{{end}}</td>
+    <td><a href="/m/{{.ID}}">{{orNone .Subject}}</a>{{if .AttachmentCount}} <span class="badge">{{icon "paperclip"}}{{.AttachmentCount}}</span>{{end}}</td>
     <td>{{with .SentBy}}{{index $d.Users (deref .)}}{{else}}<span class="muted">API</span>{{end}}</td>
     <td class="r nowrap" title="{{full .ReceivedAt}}">{{when .ReceivedAt}}</td>
   </tr>
   {{else}}
-  <tr><td colspan="5" class="empty">Nothing sent yet.</td></tr>
+  <tr><td colspan="7" class="empty">{{icon "send"}}Nothing sent yet.</td></tr>
   {{end}}
   </tbody>
 </table>
 <p class="paging">
-  {{if $d.Before}}<a href="/sent">Newest</a>{{end}}
-  {{if $d.Older}}<a href="/sent?before={{$d.Older}}">Older →</a>{{end}}
+  {{if $d.Before}}<a href="/sent{{with $d.InboxID}}?inbox={{.}}{{end}}">{{icon "chevron-left"}} Newest</a>{{end}}
+  {{if $d.Older}}<a href="/sent?before={{$d.Older}}{{with $d.InboxID}}&inbox={{.}}{{end}}">Older {{icon "chevron-right"}}</a>{{end}}
 </p>
 {{end}}

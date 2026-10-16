@@ -15,8 +15,8 @@ func nullStr(s string) any {
 }
 
 func (s *Store) CreateInbox(ctx context.Context, in *Inbox) error {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO inboxes (name, slug, domain, format_template, assumed_tld, priority, created_at)
-		VALUES (?,?,?,?,?,?,?)`, in.Name, in.Slug, nullStr(in.Domain), in.FormatTemplate, in.AssumedTLD, in.Priority, time.Now().UnixMilli())
+	res, err := s.db.ExecContext(ctx, `INSERT INTO inboxes (name, slug, domain, format_template, assumed_tld, priority, addresses, created_at)
+		VALUES (?,?,?,?,?,?,?,?)`, in.Name, in.Slug, nullStr(in.Domain), in.FormatTemplate, in.AssumedTLD, in.Priority, strings.Join(in.Addresses, "\n"), time.Now().UnixMilli())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ErrExists
@@ -28,8 +28,8 @@ func (s *Store) CreateInbox(ctx context.Context, in *Inbox) error {
 }
 
 func (s *Store) UpdateInbox(ctx context.Context, in *Inbox) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE inboxes SET name = ?, slug = ?, domain = ?, format_template = ?, assumed_tld = ?, priority = ?
-		WHERE id = ?`, in.Name, in.Slug, nullStr(in.Domain), in.FormatTemplate, in.AssumedTLD, in.Priority, in.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE inboxes SET name = ?, slug = ?, domain = ?, format_template = ?, assumed_tld = ?, priority = ?, addresses = ?
+		WHERE id = ?`, in.Name, in.Slug, nullStr(in.Domain), in.FormatTemplate, in.AssumedTLD, in.Priority, strings.Join(in.Addresses, "\n"), in.ID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return ErrExists
 	}
@@ -102,4 +102,45 @@ func (s *Store) InboundRouting(ctx context.Context) (map[int64]Routing, error) {
 		out[id] = r
 	}
 	return out, rows.Err()
+}
+
+// Purge deletes all messages received before t, with their files.
+func (s *Store) Purge(ctx context.Context, before time.Time) (int, error) {
+	return s.DeleteMessages(ctx, Filter{Until: before})
+}
+
+// UserInboxIDs returns the inboxes a user may open; nil means all.
+func (s *Store) UserInboxIDs(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT inbox_id FROM user_inboxes WHERE user_id = ? ORDER BY inbox_id", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// SetUserInboxes replaces a user's inbox access; an empty list means all inboxes.
+func (s *Store) SetUserInboxes(ctx context.Context, userID int64, inboxIDs []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM user_inboxes WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	for _, id := range inboxIDs {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO user_inboxes (user_id, inbox_id) SELECT ?, id FROM inboxes WHERE id = ?", userID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"mailcatcher/internal/store"
@@ -19,11 +21,23 @@ import (
 
 const pageSize = 50
 
+// home opens the default inbox, or the first one a restricted user may see.
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
-	id, err := s.Store.DefaultInboxID(r.Context())
+	all, err := s.Store.ListInboxes(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	visible := current(r).visible(all)
+	if len(visible) == 0 {
+		http.Error(w, "no inbox is shared with you yet; ask an admin", http.StatusForbidden)
+		return
+	}
+	id := visible[0].ID
+	for _, in := range visible {
+		if in.IsDefault {
+			id = in.ID
+		}
 	}
 	http.Redirect(w, r, "/inbox/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
@@ -34,12 +48,14 @@ type inboxData struct {
 	Q        string
 	Before   int64
 	Messages []*store.Message
+	Unread   map[int64]bool
 	Older    int64 // id for the "older" link, 0 if no more
+	Fetched  string
 }
 
 func (s *Server) loadInbox(r *http.Request) (*inboxData, error) {
 	id, ok := pathID(r, "id")
-	if !ok {
+	if !ok || !current(r).canSee(id) {
 		return nil, store.ErrNotFound
 	}
 	in, err := s.Store.GetInbox(r.Context(), id)
@@ -58,6 +74,14 @@ func (s *Server) loadInbox(r *http.Request) (*inboxData, error) {
 		d.Older = msgs[pageSize-1].ID
 	}
 	d.Messages = msgs
+	ids := make([]int64, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	if d.Unread, err = s.Store.Unread(r.Context(), current(r).User, ids); err != nil {
+		return nil, err
+	}
+	d.Fetched = r.URL.Query().Get("fetched")
 	return d, nil
 }
 
@@ -106,6 +130,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 		case e := <-ch:
+			if !current(r).canSee(e.InboxID) {
+				continue
+			}
 			b, _ := json.Marshal(e)
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
 		}
@@ -142,6 +169,9 @@ func (s *Server) messagePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Headers = rawHeaders(s.Store.Path(m.RawPath))
+	if m.Direction == "in" {
+		s.Store.MarkRead(r.Context(), current(r).User.ID, m.ID)
+	}
 	if d.Children, err = s.Store.Children(r.Context(), m.ID); err != nil {
 		s.fail(w, err)
 		return
@@ -164,7 +194,11 @@ func (s *Server) message(r *http.Request) (*store.Message, error) {
 	if !ok {
 		return nil, store.ErrNotFound
 	}
-	return s.Store.GetMessage(r.Context(), id)
+	m, err := s.Store.GetMessage(r.Context(), id)
+	if err == nil && !current(r).canSee(m.InboxID) {
+		return nil, store.ErrNotFound // hidden inboxes look empty, not forbidden
+	}
+	return m, err
 }
 
 // rawHeaders returns the header block of the stored source (capped at 256 KiB).
@@ -255,6 +289,10 @@ func (s *Server) messageRaw(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) attachment(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.message(r); err != nil {
+		s.fail(w, err)
+		return
+	}
 	ServeAttachment(w, r, s.Store)
 }
 
@@ -282,4 +320,90 @@ func ServeAttachment(w http.ResponseWriter, r *http.Request, st *store.Store) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	http.ServeFile(w, r, st.Path(a.Path))
+}
+
+func (s *Server) messageUnread(w http.ResponseWriter, r *http.Request) {
+	m, err := s.message(r)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.Store.MarkUnread(r.Context(), current(r).User.ID, m.ID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inbox/"+strconv.FormatInt(m.InboxID, 10), http.StatusSeeOther)
+}
+
+func (s *Server) inboxMarkRead(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok || !current(r).canSee(id) {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.Store.MarkInboxRead(r.Context(), current(r).User, id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inbox/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// refresh collects mail still waiting in the Worker's KV, then reloads the page.
+func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
+	back := safeNext(r.PostFormValue("back"))
+	n := 0
+	if s.Drain != nil {
+		var err error
+		if n, err = s.Drain(r.Context()); err != nil {
+			slog.Warn("manual refresh", "err", err)
+		}
+	}
+	sep := "?"
+	if strings.Contains(back, "?") {
+		sep = "&"
+	}
+	http.Redirect(w, r, back+sep+"fetched="+strconv.Itoa(n), http.StatusSeeOther)
+}
+
+// messagesBulk applies read / unread / delete to the ticked messages the user
+// may see, then returns to the list it came from.
+func (s *Server) messagesBulk(w http.ResponseWriter, r *http.Request) {
+	c := current(r)
+	back := safeNext(r.PostFormValue("back"))
+	var ids []int64
+	for _, id := range formIDs(r, "id") {
+		m, err := s.Store.GetMessage(r.Context(), id)
+		if err == nil && c.canSee(m.InboxID) {
+			ids = append(ids, id)
+		}
+	}
+	var err error
+	switch r.PostFormValue("action") {
+	case "read":
+		for _, id := range ids {
+			if err = s.Store.MarkRead(r.Context(), c.User.ID, id); err != nil {
+				break
+			}
+		}
+	case "unread":
+		for _, id := range ids {
+			if err = s.Store.MarkUnread(r.Context(), c.User.ID, id); err != nil {
+				break
+			}
+		}
+	case "delete":
+		if len(ids) > 0 {
+			var n int
+			n, err = s.Store.DeleteMessages(r.Context(), store.Filter{IDs: ids})
+			slog.Info("messages deleted", "user", c.User.Username, "count", n)
+		}
+	default:
+		http.Error(w, "unknown action", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }

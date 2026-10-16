@@ -2,7 +2,9 @@
 package ingest
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +21,8 @@ import (
 const (
 	HeaderEnvelopeFrom = "X-MC-Envelope-From"
 	HeaderEnvelopeTo   = "X-MC-Envelope-To"
+	// Comma-separated destinations the Worker auto-forwarded this mail to.
+	HeaderAutoForward = "X-MC-Auto-Forward"
 	// Cloudflare caps inbound at 25 MiB; leave headroom for its added headers.
 	MaxSize = 30 << 20
 )
@@ -52,34 +56,53 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, atts, err := Build(raw, r.Header.Get(HeaderEnvelopeFrom), r.Header.Get(HeaderEnvelopeTo))
-	if err != nil {
-		// 422 tells the Worker not to retry/stash: the bytes will never parse.
-		slog.Warn("ingest: unparseable message", "err", err, "size", len(raw))
+	forwarded := strings.Split(r.Header.Get(HeaderAutoForward), ",")
+	m, dup, err := h.Accept(r.Context(), raw, r.Header.Get(HeaderEnvelopeFrom), r.Header.Get(HeaderEnvelopeTo), forwarded, now())
+	if errors.Is(err, ErrUnparseable) {
+		// 422 tells the Worker not to stash: the bytes will never parse.
 		http.Error(w, "unparseable message", http.StatusUnprocessableEntity)
 		return
 	}
-	inboxes, err := h.Store.ListInboxes(r.Context())
 	if err != nil {
-		slog.Error("ingest: inboxes", "err", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	m.InboxID, m.DecodedTo = address.Route(inboxes, h.Domain, m.EnvelopeTo)
-	m.ReceivedAt = now()
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"id":` + strconv.FormatInt(m.ID, 10) + `,"duplicate":` + strconv.FormatBool(dup) + "}\n"))
+}
 
-	dup, err := h.Store.InsertMessage(r.Context(), m, raw, atts)
+var ErrUnparseable = errors.New("unparseable message")
+
+// Accept routes and stores one inbound mail (from the Worker, live or drained
+// from KV) and notifies OnStored for new messages.
+func (h *Handler) Accept(ctx context.Context, raw []byte, envFrom, envTo string, forwarded []string, receivedAt time.Time) (*store.Message, bool, error) {
+	m, atts, err := Build(raw, envFrom, envTo)
+	if err != nil {
+		slog.Warn("ingest: unparseable message", "err", err, "size", len(raw))
+		return nil, false, fmt.Errorf("%w: %v", ErrUnparseable, err)
+	}
+	inboxes, err := h.Store.ListInboxes(ctx)
+	if err != nil {
+		slog.Error("ingest: inboxes", "err", err)
+		return nil, false, err
+	}
+	m.InboxID, m.DecodedTo = address.Route(inboxes, h.Domain, m.EnvelopeTo)
+	m.ReceivedAt = receivedAt
+	for _, d := range forwarded {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			m.AutoForwarded = append(m.AutoForwarded, d)
+		}
+	}
+	dup, err := h.Store.InsertMessage(ctx, m, raw, atts)
 	if err != nil {
 		slog.Error("ingest: store", "err", err)
-		http.Error(w, "storage error", http.StatusInternalServerError)
-		return
+		return nil, false, err
 	}
 	slog.Info("ingest", "id", m.ID, "dup", dup, "inbox", m.InboxID, "from", m.EnvelopeFrom, "to", m.EnvelopeTo, "decoded", m.DecodedTo, "size", m.Size)
 	if !dup && h.OnStored != nil {
 		h.OnStored(m)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"id":` + strconv.FormatInt(m.ID, 10) + `,"duplicate":` + strconv.FormatBool(dup) + "}\n"))
+	return m, dup, nil
 }
 
 // Build parses raw MIME into an inbound Message. Shared with the KV drain job.

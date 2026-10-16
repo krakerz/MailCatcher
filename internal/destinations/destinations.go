@@ -23,8 +23,9 @@ var (
 
 const (
 	SyncEvery = 5 * time.Minute
-	// A send to an unknown/pending address triggers a sync at most this often.
-	minResync = 30 * time.Second
+	// A send to an unknown/pending address triggers a sync at most this often;
+	// short, because the owner may have clicked the link seconds ago.
+	minResync = 5 * time.Second
 )
 
 type Service struct {

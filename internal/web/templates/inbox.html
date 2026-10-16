@@ -1,36 +1,55 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="bar">
+<div class="page-head">
   <h1>{{$d.Inbox.Name}}</h1>
-  {{if gt (len $d.Inboxes) 1}}
-  <nav class="tabs">{{range $d.Inboxes}}<a href="/inbox/{{.ID}}"{{if eq .ID $d.Inbox.ID}} class="active"{{end}}>{{.Name}}</a>{{end}}</nav>
-  {{end}}
+  <nav class="tabs"><a class="active" href="/inbox/{{$d.Inbox.ID}}">{{icon "inbox"}} Received</a><a href="/sent?inbox={{$d.Inbox.ID}}">{{icon "send"}} Sent</a></nav>
+  <span class="spacer"></span>
+  <form method="post" action="/refresh" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="/inbox/{{$d.Inbox.ID}}">
+    <button class="secondary" title="Collect mail still waiting at Cloudflare">{{icon "refresh-cw"}} Refresh</button>
+  </form>
+  <form method="post" action="/inbox/{{$d.Inbox.ID}}/read" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="secondary" title="Mark everything here as read">{{icon "mail-open"}} Mark all read</button>
+  </form>
   <form method="get" class="search">
-    <input name="q" value="{{$d.Q}}" placeholder="Search to / from / subject" type="search">
-    <button>Search</button>
-    {{if $d.Q}}<a href="/inbox/{{$d.Inbox.ID}}">Clear</a>{{end}}
+    {{icon "search"}}
+    <input name="q" value="{{$d.Q}}" placeholder="Search to, from or subject" type="search" aria-label="Search">
+    {{if $d.Q}}<a class="button secondary" href="/inbox/{{$d.Inbox.ID}}">{{icon "x"}} Clear</a>{{end}}
   </form>
 </div>
-<table class="list" id="messages" data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}">
-  <thead><tr><th>From</th><th>To</th><th>Subject</th><th>Codes</th><th class="r">Received</th></tr></thead>
-  <tbody>{{template "rows" $d}}</tbody>
-</table>
+{{template "bulkbar" (dict "CSRF" .CSRF "Back" (printf "/inbox/%d" $d.Inbox.ID) "Read" true)}}
+{{with $d.Fetched}}<p class="notice">{{icon "circle-check"}}<span>Refreshed{{if ne . "0"}} — collected {{.}} message(s) that were waiting at Cloudflare{{end}}.</span></p>{{end}}
+<div class="mail-list" id="messages" data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}" data-rows>
+{{template "rows" $d}}
+</div>
 <p class="paging">
-  {{if $d.Before}}<a href="/inbox/{{$d.Inbox.ID}}{{with $d.Q}}?q={{.}}{{end}}">Newest</a>{{end}}
-  {{if $d.Older}}<a href="/inbox/{{$d.Inbox.ID}}?before={{$d.Older}}{{with $d.Q}}&q={{.}}{{end}}">Older →</a>{{end}}
+  {{if $d.Before}}<a href="/inbox/{{$d.Inbox.ID}}{{with $d.Q}}?q={{.}}{{end}}">{{icon "chevron-left"}} Newest</a>{{end}}
+  {{if $d.Older}}<a href="/inbox/{{$d.Inbox.ID}}?before={{$d.Older}}{{with $d.Q}}&q={{.}}{{end}}">Older {{icon "chevron-right"}}</a>{{end}}
 </p>
 {{end}}
 
 {{define "rows"}}
 {{range .Messages}}
-<tr class="dir-{{.Direction}}">
-  <td><a href="/m/{{.ID}}">{{if .From.Name}}{{.From.Name}}{{else}}{{.From.Address}}{{end}}</a></td>
-  <td class="mono">{{.EnvelopeTo}}{{with .DecodedTo}}<br><span class="muted">→ {{.}}</span>{{end}}</td>
-  <td><a href="/m/{{.ID}}">{{orNone .Subject}}</a>{{if .AttachmentCount}} <span class="badge">📎 {{.AttachmentCount}}</span>{{end}}</td>
-  <td class="mono">{{range .Codes}}<span class="code">{{.}}</span> {{end}}</td>
-  <td class="r nowrap" title="{{full .ReceivedAt}}">{{when .ReceivedAt}}</td>
-</tr>
+<div class="mail-row{{if index $.Unread .ID}} unread{{end}}">
+  <label class="pick"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" data-bulk-item aria-label="Select"></label>
+  <a class="mail-link" href="/m/{{.ID}}">
+  <span class="avatar h{{hue .From.Address}}">{{initial .From.Name .From.Address}}</span>
+  <span class="who">{{if .From.Name}}{{.From.Name}}{{else}}{{.From.Address}}{{end}}
+    <span class="to mono">{{if .DecodedTo}}→ {{.DecodedTo}}{{else}}{{.EnvelopeTo}}{{end}}</span>
+  </span>
+  <span class="subject">
+    <span>{{orNone .Subject}}</span>
+    {{range .Codes}}<span class="code">{{.}}</span>{{end}}
+  </span>
+  <span class="meta">
+    {{if .AttachmentCount}}<span class="badge" title="Attachments">{{icon "paperclip"}}{{.AttachmentCount}}</span>{{end}}
+    {{if .AutoForwarded}}<span class="badge accent" title="Auto-forwarded">{{icon "forward"}}</span>{{end}}
+    <span title="{{full .ReceivedAt}}">{{when .ReceivedAt}}</span>
+  </span>
+  </a>
+</div>
 {{else}}
-<tr><td colspan="5" class="empty">No messages{{if .Q}} match “{{.Q}}”{{end}}.</td></tr>
+<div class="empty">{{icon "inbox"}}No messages{{if .Q}} match “{{.Q}}”{{else}} yet. Mail sent to this inbox shows up here as it arrives{{end}}.</div>
 {{end}}
 {{end}}

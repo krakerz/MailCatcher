@@ -2,13 +2,17 @@ services:
   mailcatcher:
     build: .
     restart: unless-stopped
+    # Must own ./data on the host: create it first (mkdir data) as this user.
+    user: "${MC_UID:-1000}:${MC_GID:-1000}"
     environment:
       MC_DOMAIN: ${MC_DOMAIN}
       MC_HMAC_SECRET: ${MC_HMAC_SECRET}
       MC_WORKER_URL: ${MC_WORKER_URL}
+      MC_PUBLIC_URL: ${MC_PUBLIC_URL:-}
       MC_CF_API_TOKEN: ${MC_CF_API_TOKEN:-}
       MC_CF_ACCOUNT_ID: ${MC_CF_ACCOUNT_ID:-}
       MC_ADMIN_PASSWORD: ${MC_ADMIN_PASSWORD:-}
+      MC_RETENTION_DAYS: ${MC_RETENTION_DAYS:-30}
     volumes:
       - ./data:/data
     # No published ports: reachable only through the tunnel (http://mailcatcher:8080).
@@ -20,4 +24,5 @@ services:
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     depends_on:
-      - mailcatcher
+      mailcatcher:
+        condition: service_healthy

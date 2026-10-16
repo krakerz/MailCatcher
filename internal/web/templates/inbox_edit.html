@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$d := .Data}}
-<p class="crumbs"><a href="/admin/inboxes">← Inboxes</a></p>
+<p class="crumbs"><a href="/admin/inboxes">{{icon "arrow-left"}} Inboxes</a></p>
 <h1>Edit {{$d.Inbox.Name}}{{if $d.Inbox.IsDefault}} <span class="badge">default</span>{{end}}</h1>
-{{with $d.Error}}<p class="error">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 
 <form method="post" action="/admin/inboxes/{{$d.Inbox.ID}}" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">

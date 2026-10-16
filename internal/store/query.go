@@ -16,20 +16,21 @@ import (
 // Everything except the (possibly large) bodies.
 const msgCols = `id, inbox_id, direction, message_id, in_reply_to, refs, envelope_from, envelope_to,
 	from_name, from_addr, to_json, cc_json, subject, date, received_at, size, raw_path, raw_sha256,
-	links, codes, decoded_to, sent_by, parent_id,
+	links, codes, decoded_to, sent_by, parent_id, auto_forwarded,
 	(SELECT count(*) FROM attachments a WHERE a.message_id = messages.id AND a.inline = 0)`
 
 func scanMessage(row interface{ Scan(...any) error }, bodies bool) (*Message, error) {
 	var (
 		m                          Message
 		refs, to, cc, links, codes string
+		autoFwd                    string
 		date                       sql.NullInt64
 		received                   int64
 		sentBy, parent             sql.NullInt64
 	)
 	dst := []any{&m.ID, &m.InboxID, &m.Direction, &m.MessageID, &m.InReplyTo, &refs, &m.EnvelopeFrom, &m.EnvelopeTo,
 		&m.From.Name, &m.From.Address, &to, &cc, &m.Subject, &date, &received, &m.Size, &m.RawPath, &m.RawSHA256,
-		&links, &codes, &m.DecodedTo, &sentBy, &parent, &m.AttachmentCount}
+		&links, &codes, &m.DecodedTo, &sentBy, &parent, &autoFwd, &m.AttachmentCount}
 	if bodies {
 		dst = append(dst, &m.Text, &m.HTML)
 	}
@@ -39,7 +40,7 @@ func scanMessage(row interface{ Scan(...any) error }, bodies bool) (*Message, er
 	for _, f := range []struct {
 		src string
 		dst any
-	}{{refs, &m.References}, {to, &m.To}, {cc, &m.Cc}, {links, &m.Links}, {codes, &m.Codes}} {
+	}{{refs, &m.References}, {to, &m.To}, {cc, &m.Cc}, {links, &m.Links}, {codes, &m.Codes}, {autoFwd, &m.AutoForwarded}} {
 		if err := json.Unmarshal([]byte(f.src), f.dst); err != nil {
 			return nil, fmt.Errorf("message %d: %w", m.ID, err)
 		}
@@ -60,15 +61,18 @@ func scanMessage(row interface{ Scan(...any) error }, bodies bool) (*Message, er
 // Filter selects messages. Text fields are case-insensitive substring matches.
 type Filter struct {
 	InboxID   int64
-	Direction string // "in", "out" or "" for both
-	To        string // envelope recipient, To or Cc
-	From      string // envelope sender or From
+	InboxIDs  []int64 // restrict to these inboxes (per-user access); nil = no restriction
+	IDs       []int64 // only these messages; nil = no restriction
+	Direction string  // "in", "out" or "" for both
+	To        string  // envelope recipient, To or Cc
+	From      string  // envelope sender or From
 	Subject   string
 	Q         string // any of to/from/subject
 	Since     time.Time
-	AfterID   int64 // id > AfterID (newer)
-	BeforeID  int64 // id < BeforeID (older, for paging)
-	Limit     int   // default 50, max 500
+	Until     time.Time // received_at < Until
+	AfterID   int64     // id > AfterID (newer)
+	BeforeID  int64     // id < BeforeID (older, for paging)
+	Limit     int       // default 50, max 500
 }
 
 func likeArg(s string) string {
@@ -84,6 +88,27 @@ func (f Filter) where() (string, []any) {
 	add := func(c string, a ...any) { conds = append(conds, c); args = append(args, a...) }
 	if f.InboxID != 0 {
 		add("inbox_id = ?", f.InboxID)
+	}
+	if f.InboxIDs != nil {
+		if len(f.InboxIDs) == 0 {
+			add("0")
+		} else {
+			ph := strings.TrimSuffix(strings.Repeat("?,", len(f.InboxIDs)), ",")
+			for _, id := range f.InboxIDs {
+				args = append(args, id)
+			}
+			conds = append(conds, "inbox_id IN ("+ph+")")
+		}
+	}
+	if f.IDs != nil {
+		if len(f.IDs) == 0 {
+			add("0")
+		} else {
+			for _, id := range f.IDs {
+				args = append(args, id)
+			}
+			conds = append(conds, "id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(f.IDs)), ",")+")")
+		}
 	}
 	if f.Direction != "" {
 		add("direction = ?", f.Direction)
@@ -107,6 +132,9 @@ func (f Filter) where() (string, []any) {
 	}
 	if !f.Since.IsZero() {
 		add("received_at >= ?", f.Since.UnixMilli())
+	}
+	if !f.Until.IsZero() {
+		add("received_at < ?", f.Until.UnixMilli())
 	}
 	if f.AfterID != 0 {
 		add("id > ?", f.AfterID)
@@ -204,15 +232,26 @@ type Inbox struct {
 	Priority       int
 	IsDefault      bool
 	HasAPIKey      bool
+	// Addresses, when set, are the only catch-all addresses (globs, * wildcard)
+	// this inbox receives; the format then only decodes the real address.
+	Addresses []string
 }
 
-const inboxCols = `id, name, slug, coalesce(domain, ''), format_template, assumed_tld, priority, is_default, api_key_hash IS NOT NULL`
+const inboxCols = `id, name, slug, coalesce(domain, ''), format_template, assumed_tld, priority, is_default, api_key_hash IS NOT NULL, addresses`
 
 func scanInbox(row interface{ Scan(...any) error }) (*Inbox, error) {
-	var in Inbox
-	err := row.Scan(&in.ID, &in.Name, &in.Slug, &in.Domain, &in.FormatTemplate, &in.AssumedTLD, &in.Priority, &in.IsDefault, &in.HasAPIKey)
+	var (
+		in    Inbox
+		addrs string
+	)
+	err := row.Scan(&in.ID, &in.Name, &in.Slug, &in.Domain, &in.FormatTemplate, &in.AssumedTLD, &in.Priority, &in.IsDefault, &in.HasAPIKey, &addrs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	for _, a := range strings.Split(addrs, "\n") {
+		if a = strings.TrimSpace(a); a != "" {
+			in.Addresses = append(in.Addresses, a)
+		}
 	}
 	return &in, err
 }
