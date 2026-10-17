@@ -36,7 +36,7 @@ Query parameters:
 
 | Name | Type | Default | Description |
 |---|---|---|---|
-| `to` | string | — | Case-insensitive substring. Matches the envelope recipient, the `To` and `Cc` headers, and the decoded real address. Either `b.gmail@<domain>` or `b@gmail.com` works. |
+| `to` | string | — | Case-insensitive substring. Matches the envelope recipient, the `To` and `Cc` headers, and the decoded real address. Either `jane.gmail@<domain>` or `jane@gmail.com` works. |
 | `from` | string | — | Case-insensitive substring. Matches the envelope sender, the `From` address and the `From` name. |
 | `subject` | string | — | Case-insensitive substring of the subject. |
 | `since` | string | — | Only messages received at or after this time. RFC 3339 (`2026-10-16T10:00:00Z`), unix seconds (`1789552800`), or unix milliseconds when the value is greater than 1e12 (`1789552800000`). |
@@ -59,10 +59,10 @@ Example response:
       "direction": "in",
       "message_id": "<8c1f2a@mail.example.net>",
       "envelope_from": "noreply@example.com",
-      "envelope_to": "b.gmail@<domain>",
-      "decoded_to": "b@gmail.com",
+      "envelope_to": "jane.gmail@<domain>",
+      "decoded_to": "jane@gmail.com",
       "from": {"name": "Example", "address": "noreply@example.com"},
-      "to": [{"address": "b.gmail@<domain>"}],
+      "to": [{"address": "jane.gmail@<domain>"}],
       "cc": [],
       "subject": "Your verification code",
       "date": "2026-10-16T10:02:11Z",
@@ -123,10 +123,10 @@ Example response:
   "direction": "in",
   "message_id": "<8c1f2a@mail.example.net>",
   "envelope_from": "noreply@example.com",
-  "envelope_to": "b.gmail@<domain>",
-  "decoded_to": "b@gmail.com",
+  "envelope_to": "jane.gmail@<domain>",
+  "decoded_to": "jane@gmail.com",
   "from": {"name": "Example", "address": "noreply@example.com"},
-  "to": [{"address": "b.gmail@<domain>"}],
+  "to": [{"address": "jane.gmail@<domain>"}],
   "cc": [],
   "subject": "Your verification code",
   "date": "2026-10-16T10:02:11Z",
@@ -179,7 +179,7 @@ Errors: `401`, `403`, `404` (message not found or in another inbox; the attachme
 
 `POST /api/messages/{id}/reply`
 
-Sends a reply to the message. The reply is sent from the catch-all address the original was sent to (for example `b.gmail@<domain>`), to the original sender's `Reply-To` if set, otherwise its `From` address. It is threaded with `In-Reply-To` and `References`, and the subject gets a `Re: ` prefix unless it already has one.
+Sends a reply to the message. The reply is sent from the catch-all address the original was sent to (for example `jane.gmail@<domain>`), to the original sender's `Reply-To` if set, otherwise its `From` address. It is threaded with `In-Reply-To` and `References`, and the subject gets a `Re: ` prefix unless it already has one.
 
 Request body (JSON):
 
@@ -208,10 +208,10 @@ Example response:
   "inbox_id": 1,
   "direction": "out",
   "message_id": "<d41e09@<domain>>",
-  "envelope_from": "b.gmail@<domain>",
+  "envelope_from": "jane.gmail@<domain>",
   "envelope_to": "noreply@example.com",
-  "decoded_to": "b@gmail.com",
-  "from": {"address": "b.gmail@<domain>"},
+  "decoded_to": "jane@gmail.com",
+  "from": {"address": "jane.gmail@<domain>"},
   "to": [{"address": "noreply@example.com"}],
   "cc": [],
   "subject": "Re: Your verification code",
@@ -271,10 +271,10 @@ Example response:
   "inbox_id": 1,
   "direction": "out",
   "message_id": "<7b2c55@<domain>>",
-  "envelope_from": "b.gmail@<domain>",
+  "envelope_from": "jane.gmail@<domain>",
   "envelope_to": "qa@example.com",
-  "decoded_to": "b@gmail.com",
-  "from": {"address": "b.gmail@<domain>"},
+  "decoded_to": "jane@gmail.com",
+  "from": {"address": "jane.gmail@<domain>"},
   "to": [{"address": "qa@example.com"}],
   "cc": [],
   "subject": "Fwd: Your verification code",
@@ -318,7 +318,7 @@ Example request:
 
 ```sh
 curl -X DELETE -H "Authorization: Bearer $MC_API_KEY" \
-  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=b@gmail.com"
+  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=jane@gmail.com"
 ```
 
 Errors: `400` (invalid `direction`, `since` or `limit`), `401`, `403`, `500`.
@@ -360,7 +360,7 @@ curl:
 SINCE=$(date +%s)
 # ... trigger the email in the system under test ...
 curl -s -H "Authorization: Bearer $MC_API_KEY" \
-  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=b@gmail.com&since=$SINCE&wait=60s" \
+  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=jane@gmail.com&since=$SINCE&wait=60s" \
   | jq -r '.messages[0].codes[0]'
 ```
 
@@ -377,7 +377,7 @@ test('receives a verification code', async () => {
   const since = Date.now(); // unix ms; sent as since=<ms>
   // ... trigger the email in the system under test ...
 
-  const url = `${BASE}/api/inboxes/${INBOX}/messages?to=${encodeURIComponent('b@gmail.com')}&since=${since}&wait=60s`;
+  const url = `${BASE}/api/inboxes/${INBOX}/messages?to=${encodeURIComponent('jane@gmail.com')}&since=${since}&wait=60s`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${KEY}` } });
   expect(res.status).toBe(200);
   const { messages } = await res.json();
@@ -402,7 +402,7 @@ since = int(time.time())
 r = requests.get(
     f"{BASE}/api/inboxes/{INBOX}/messages",
     headers=headers,
-    params={"to": "b@gmail.com", "since": since, "wait": "60s"},
+    params={"to": "jane@gmail.com", "since": since, "wait": "60s"},
     timeout=100,  # longer than wait
 )
 r.raise_for_status()
@@ -464,12 +464,12 @@ Delete the test address's mail (received and sent) so the next run starts clean.
 
 ```sh
 curl -X DELETE -H "Authorization: Bearer $MC_API_KEY" \
-  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=b@gmail.com"
+  "https://<app hostname>/api/inboxes/<inbox id>/messages?to=jane@gmail.com"
 # {"deleted": 3}
 ```
 
 ```ts
-await fetch(`${BASE}/api/inboxes/${INBOX}/messages?to=${encodeURIComponent('b@gmail.com')}`, {
+await fetch(`${BASE}/api/inboxes/${INBOX}/messages?to=${encodeURIComponent('jane@gmail.com')}`, {
   method: 'DELETE',
   headers: { Authorization: `Bearer ${KEY}` },
 });
@@ -479,14 +479,14 @@ await fetch(`${BASE}/api/inboxes/${INBOX}/messages?to=${encodeURIComponent('b@gm
 requests.delete(
     f"{BASE}/api/inboxes/{INBOX}/messages",
     headers=headers,
-    params={"to": "b@gmail.com"},
+    params={"to": "jane@gmail.com"},
     timeout=30,
 )
 ```
 
 ## Notes
 
-- **Address formats.** Mail to `b@gmail.com` arrives at the catch-all address in the inbox's format, for example `b.gmail@<domain>` or `b=gmail.com@<domain>`. The `to` filter accepts either the catch-all address or the decoded real address (`b@gmail.com`), because both are stored with each message.
+- **Address formats.** Mail to `jane@gmail.com` arrives at the catch-all address in the inbox's format, for example `jane.gmail@<domain>` or `jane=gmail.com@<domain>`. The `to` filter accepts either the catch-all address or the decoded real address (`jane@gmail.com`), because both are stored with each message.
 - **Outbound mail** (reply, forward) is delivered only to Cloudflare-verified destination addresses on the free plan. Other recipients return `422`.
 - **Wait cap.** Cloudflare closes a proxied request after about 100 seconds without a response, so `wait` is capped at `90s` by the server. Set your HTTP client timeout above your `wait` value.
 - **Relative URLs.** The `url` of an attachment is a path. Prefix it with the base URL.
