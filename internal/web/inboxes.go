@@ -41,7 +41,7 @@ func (s *Server) renderInboxes(w http.ResponseWriter, r *http.Request, d inboxes
 }
 
 func (s *Server) inboxesPage(w http.ResponseWriter, r *http.Request) {
-	s.renderInboxes(w, r, inboxesData{})
+	s.renderInboxes(w, r, takeFlash[inboxesData](s, r))
 }
 
 var (
@@ -96,7 +96,7 @@ func (s *Server) inboxCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.rulesChanged()
-	s.renderInboxes(w, r, inboxesData{Notice: "Created inbox " + in.Name + ". New mail is routed to it right away; use “Re-apply routing” to move existing mail."})
+	s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Notice: "Created inbox " + in.Name + ". New mail is routed to it right away; use “Re-apply routing” to move existing mail."})
 }
 
 type inboxEditData struct {
@@ -138,7 +138,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.rulesChanged()
-		s.renderInboxes(w, r, inboxesData{Notice: cur.Name + " is now the default inbox."})
+		s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Notice: cur.Name + " is now the default inbox."})
 	case "delete":
 		if cur.IsDefault {
 			s.renderInboxes(w, r, inboxesData{Error: "The default inbox cannot be deleted. Make another inbox the default first."})
@@ -153,7 +153,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.rulesChanged()
-		s.renderInboxes(w, r, inboxesData{Notice: "Deleted inbox " + cur.Name + " and its messages."})
+		s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Notice: "Deleted inbox " + cur.Name + " and its messages."})
 	default:
 		in, msg := inboxFromForm(r)
 		in.ID, in.IsDefault = id, cur.IsDefault
@@ -171,7 +171,7 @@ func (s *Server) inboxUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.rulesChanged()
-		s.renderInboxes(w, r, inboxesData{Notice: "Saved " + in.Name + ". Use “Re-apply routing” to apply the change to existing mail."})
+		s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Notice: "Saved " + in.Name + ". Use “Re-apply routing” to apply the change to existing mail."})
 	}
 }
 
@@ -181,7 +181,7 @@ func (s *Server) inboxReroute(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.renderInboxes(w, r, inboxesData{Notice: fmt.Sprintf("Routing re-applied: %d message(s) moved or re-decoded.", n)})
+	s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Notice: fmt.Sprintf("Routing re-applied: %d message(s) moved or re-decoded.", n)})
 }
 
 func (s *Server) inboxAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -200,7 +200,7 @@ func (s *Server) inboxAPIKey(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.renderInboxes(w, r, inboxesData{Key: key, KeyFor: in.Name})
+	s.redirectFlash(w, r, "/admin/inboxes", inboxesData{Key: key, KeyFor: in.Name})
 }
 
 type previewResult struct {

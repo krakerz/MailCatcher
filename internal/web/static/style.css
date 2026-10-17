@@ -312,3 +312,12 @@ table.list th.pick, table.list td.pick { width: 36px; padding-right: 0; }
 button.icon-btn, a.button.icon-btn { padding: 8px 9px; }
 @media (max-width: 700px) { .page-head.stack .search { order: 1; flex: 1 1 100%; } }
 .push-right { margin-left: auto; }
+
+/* In-page navigation progress (app.js nav), shown when a load takes a moment. */
+html.nav-busy body::before {
+  content: ""; position: fixed; z-index: 1000; top: 0; left: 0; height: 2px; width: 100%;
+  background: var(--accent); transform-origin: left; animation: nav-progress 1.5s ease-out forwards;
+}
+html.nav-busy { cursor: progress; }
+@keyframes nav-progress { from { transform: scaleX(0); } to { transform: scaleX(.85); } }
+@media (prefers-reduced-motion: reduce) { html.nav-busy body::before { animation: none; transform: scaleX(.5); } }

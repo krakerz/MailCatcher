@@ -92,7 +92,8 @@ func (s *Server) renderRules(w http.ResponseWriter, r *http.Request, d rulesData
 
 // rulesPage also answers "which rules match this address?" via ?test=.
 func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
-	d := rulesData{Test: strings.TrimSpace(r.URL.Query().Get("test"))}
+	d := takeFlash[rulesData](s, r)
+	d.Test = strings.TrimSpace(r.URL.Query().Get("test"))
 	if d.Test != "" {
 		c := current(r)
 		all, err := s.Store.ListRules(r.Context())
@@ -200,7 +201,7 @@ func (s *Server) afterRuleChange(w http.ResponseWriter, r *http.Request, notice 
 			d.Notice += " The Worker has the new rules."
 		}
 	}
-	s.renderRules(w, r, d)
+	s.redirectFlash(w, r, "/rules", d)
 }
 
 func (s *Server) rulesPush(w http.ResponseWriter, r *http.Request) {

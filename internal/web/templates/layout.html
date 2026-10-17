@@ -15,7 +15,7 @@
   <aside class="sidebar">
     <a class="brand" href="/"><img src="{{asset "logo.svg"}}" alt="">MailCatcher</a>
     <a class="button compose-btn" href="/compose">{{icon "square-pen"}} Compose</a>
-    <nav class="nav">
+    <nav class="nav" id="sidenav" data-fresh>
       <div class="nav-label">Inboxes</div>
       {{$path := .Path}}
       {{range .Nav}}

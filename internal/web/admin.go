@@ -46,7 +46,7 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, d usersData
 }
 
 func (s *Server) usersPage(w http.ResponseWriter, r *http.Request) {
-	s.renderUsers(w, r, usersData{})
+	s.renderUsers(w, r, takeFlash[usersData](s, r))
 }
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{2,32}$`)
@@ -83,7 +83,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.renderUsers(w, r, usersData{Notice: "Created " + username + ". Temporary password (shown once, must be changed at first login): " + pw})
+	s.redirectFlash(w, r, "/admin/users", usersData{Notice: "Created " + username + ". Temporary password (shown once, must be changed at first login): " + pw})
 }
 
 func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +132,7 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		s.renderUsers(w, r, usersData{Notice: "Saved inbox access for " + u.Username + "."})
+		s.redirectFlash(w, r, "/admin/users", usersData{Notice: "Saved inbox access for " + u.Username + "."})
 		return
 	case "reset":
 		pw := auth.Token(12)
@@ -153,7 +153,7 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 	if action == "disable" || action == "reset" {
 		s.Store.DeleteUserSessions(r.Context(), u.ID, "")
 	}
-	s.renderUsers(w, r, usersData{Notice: notice})
+	s.redirectFlash(w, r, "/admin/users", usersData{Notice: notice})
 }
 
 // formIDs reads repeated numeric form values (checkboxes).

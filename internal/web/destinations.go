@@ -32,7 +32,7 @@ func (s *Server) renderDestinations(w http.ResponseWriter, r *http.Request, d de
 }
 
 func (s *Server) destinationsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderDestinations(w, r, destinationsData{})
+	s.renderDestinations(w, r, takeFlash[destinationsData](s, r))
 }
 
 func destError(err error) string {
@@ -71,7 +71,7 @@ func (s *Server) destinationAdd(w http.ResponseWriter, r *http.Request) {
 		s.renderDestinations(w, r, destinationsData{Error: destError(err)})
 		return
 	}
-	s.renderDestinations(w, r, destinationsData{Notice: notice})
+	s.redirectFlash(w, r, "/destinations", destinationsData{Notice: notice})
 }
 
 func (s *Server) destinationSync(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func (s *Server) destinationSync(w http.ResponseWriter, r *http.Request) {
 		s.renderDestinations(w, r, destinationsData{Error: destError(err)})
 		return
 	}
-	s.renderDestinations(w, r, destinationsData{Notice: "Refreshed from Cloudflare."})
+	s.redirectFlash(w, r, "/destinations", destinationsData{Notice: "Refreshed from Cloudflare."})
 }
 
 func (s *Server) destinationRemove(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func (s *Server) destinationRemove(w http.ResponseWriter, r *http.Request) {
 		s.renderDestinations(w, r, destinationsData{Error: destError(err)})
 		return
 	}
-	s.renderDestinations(w, r, destinationsData{Notice: "Removed " + email + "."})
+	s.redirectFlash(w, r, "/destinations", destinationsData{Notice: "Removed " + email + "."})
 }
 
 // verifiedEmails feeds the To suggestions on the send forms.

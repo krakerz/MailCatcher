@@ -17,6 +17,7 @@ import (
 	"mailcatcher/internal/cloudflare"
 	"mailcatcher/internal/destinations"
 	"mailcatcher/internal/events"
+	"mailcatcher/internal/mailparse"
 	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/store"
 )
@@ -52,7 +53,7 @@ func setupWith(t *testing.T, configure func(*Server)) (*client, *store.Store) {
 	}
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(SecurityHeaders(mux))
+	srv := httptest.NewServer(SecurityHeaders(Compress(mux)))
 	t.Cleanup(srv.Close)
 	return newClient(t, srv.URL), st
 }
@@ -91,6 +92,17 @@ func (c *client) csrf(path string) string {
 		c.t.Fatalf("no csrf token on %s", path)
 	}
 	return m[1]
+}
+
+// postFollow expects a Post/Redirect/Get answer and returns the page it redirects to.
+func (c *client) postFollow(path string, form url.Values) string {
+	c.t.Helper()
+	code, loc, body := c.do("POST", path, form)
+	if code != http.StatusSeeOther {
+		c.t.Fatalf("POST %s: %d, want 303\n%s", path, code, body)
+	}
+	_, _, body = c.do("GET", loc, nil)
+	return body
 }
 
 func (c *client) login(user, pw string) {
@@ -139,7 +151,7 @@ func TestLoginRateLimit(t *testing.T) {
 func TestCreatedUserMustChangePassword(t *testing.T) {
 	c, st := setup(t)
 	c.login("admin", "admin-pass")
-	_, _, body := c.do("POST", "/admin/users", url.Values{"csrf": {c.csrf("/admin/users")}, "username": {"user1"}, "role": {"user"}})
+	body := c.postFollow("/admin/users", url.Values{"csrf": {c.csrf("/admin/users")}, "username": {"user1"}, "role": {"user"}})
 	m := regexp.MustCompile(`must be changed at first login\): ([A-Za-z0-9_-]+)`).FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("no temp password in: %s", body)
@@ -215,8 +227,8 @@ func TestInboxAdmin(t *testing.T) {
 		t.Fatalf("invalid format accepted: %d", code)
 	}
 	good := url.Values{"csrf": {c.csrf("/admin/inboxes")}, "name": {"Team 1"}, "slug": {"team1"}, "format": {"{inbox}-{local}={domain}"}}
-	if code, _, body := c.do("POST", "/admin/inboxes", good); code != 200 || !strings.Contains(body, "Created inbox Team 1") {
-		t.Fatalf("create: %d", code)
+	if body := c.postFollow("/admin/inboxes", good); !strings.Contains(body, "Created inbox Team 1") {
+		t.Fatal("create: no notice")
 	}
 
 	_, _, body := c.do("GET", "/admin/format-preview?format=%7Binbox%7D-%7Blocal%7D%3D%7Bdomain%7D&slug=team1&address=b@gmail.com", nil)
@@ -235,8 +247,8 @@ func TestRulesPage(t *testing.T) {
 	c, st := setup(t)
 	c.login("admin", "admin-pass")
 	f := url.Values{"csrf": {c.csrf("/rules")}, "inbox": {"1"}, "glob": {"*.gmail@*"}, "destination": {"Fwd@Example.com"}}
-	if code, _, body := c.do("POST", "/rules", f); code != 200 || !strings.Contains(body, "Rule added") {
-		t.Fatalf("create: %d", code)
+	if body := c.postFollow("/rules", f); !strings.Contains(body, "Rule added") {
+		t.Fatal("create: no notice")
 	}
 	list, _ := st.ListRules(context.Background())
 	if len(list) != 1 || list[0].Destination != "fwd@example.com" || !list[0].Enabled {
@@ -261,7 +273,7 @@ func TestInboxAddressList(t *testing.T) {
 	c.login("admin", "admin-pass")
 	f := url.Values{"csrf": {c.csrf("/admin/inboxes")}, "name": {"Inbox A"}, "slug": {"inbox-a"},
 		"format": {"{local}.{name}"}, "tld": {"com"}, "addresses": {"B.gmail@example.test\r\n\r\nqa-*@example.test"}}
-	if code, _, _ := c.do("POST", "/admin/inboxes", f); code != 200 {
+	if code, _, _ := c.do("POST", "/admin/inboxes", f); code != http.StatusSeeOther {
 		t.Fatalf("create: %d", code)
 	}
 	list, _ := st.ListInboxes(context.Background())
@@ -367,7 +379,7 @@ func TestRulesScopedToUserInboxes(t *testing.T) {
 	}
 	f.Set("csrf", lc.csrf("/rules"))
 	f.Set("inbox", itoa(other.ID))
-	if code, _, _ := lc.do("POST", "/rules", f); code != 200 {
+	if code, _, _ := lc.do("POST", "/rules", f); code != http.StatusSeeOther {
 		t.Errorf("own rule: %d", code)
 	}
 	list, _ := st.ListRules(ctx)
@@ -505,5 +517,110 @@ func TestDestinationsAdminOnly(t *testing.T) {
 	_, _, body = c.do("POST", "/compose", form(c))
 	if !strings.Contains(body, "Send verification link to x@gmail.com") {
 		t.Error("admin unverified send: no verification button")
+	}
+}
+
+func TestPostRedirectGet(t *testing.T) {
+	c, _ := setup(t)
+	c.login("admin", "admin-pass")
+	code, loc, _ := c.do("POST", "/admin/users", url.Values{"csrf": {c.csrf("/admin/users")}, "username": {"user1"}, "role": {"user"}})
+	if code != http.StatusSeeOther || loc != "/admin/users" {
+		t.Fatalf("create user: %d %s, want 303 /admin/users", code, loc)
+	}
+	if _, _, body := c.do("GET", loc, nil); !strings.Contains(body, "Created user1") {
+		t.Fatal("notice missing after redirect")
+	}
+	if _, _, body := c.do("GET", loc, nil); strings.Contains(body, "Created user1") {
+		t.Fatal("notice (with the temporary password) shown again on reload")
+	}
+	// Another session never sees it.
+	c2 := newClient(t, c.base)
+	c2.login("admin", "admin-pass")
+	c.postFollow("/admin/inboxes/reroute", url.Values{"csrf": {c.csrf("/admin/inboxes")}})
+	code, loc, _ = c2.do("POST", "/admin/inboxes/reroute", url.Values{"csrf": {c2.csrf("/admin/inboxes")}})
+	_, _, body := c.do("GET", "/admin/inboxes", nil)
+	if code != http.StatusSeeOther || strings.Contains(body, "Routing re-applied") {
+		t.Fatal("flash leaked across sessions")
+	}
+}
+
+func TestCompression(t *testing.T) {
+	c, _ := setup(t)
+	get := func(path, ae string) *http.Response {
+		req, _ := http.NewRequest("GET", c.base+path, nil)
+		if ae != "" {
+			req.Header.Set("Accept-Encoding", ae)
+		}
+		res, err := c.http.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		return res
+	}
+	css := "/static/style.css?v=" + assetVersion
+	if res := get(css, "gzip, br"); res.Header.Get("Content-Encoding") != "gzip" || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("versioned css: encoding %q, cache %q", res.Header.Get("Content-Encoding"), res.Header.Get("Cache-Control"))
+	}
+	if res := get("/static/style.css", "identity"); res.Header.Get("Content-Encoding") != "" || strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatal("identity request compressed, or unversioned URL cached forever")
+	}
+	if res := get("/login", "gzip"); res.Header.Get("Content-Encoding") != "gzip" {
+		t.Error("HTML page not compressed")
+	}
+}
+
+func TestEventsNotCompressed(t *testing.T) {
+	c, _ := setup(t)
+	c.login("admin", "admin-pass")
+	req, _ := http.NewRequest("GET", c.base+"/events", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	for _, ck := range c.http.Jar.Cookies(req.URL) {
+		req.AddCookie(ck)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	res, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.Header.Get("Content-Encoding") != "" || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("events: encoding %q type %q", res.Header.Get("Content-Encoding"), res.Header.Get("Content-Type"))
+	}
+}
+
+func TestCacheHeaders(t *testing.T) {
+	c, st := setup(t)
+	c.login("admin", "admin-pass")
+	raw := []byte("From: a@x.test\r\nTo: b@example.test\r\nSubject: s\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nhi\r\n--b\r\nContent-Type: text/plain; name=a.txt\r\nContent-Disposition: attachment; filename=a.txt\r\n\r\nfile\r\n--b--\r\n")
+	m := &store.Message{InboxID: 1, Direction: "in", EnvelopeTo: "b@example.test"}
+	atts := []mailparse.Attachment{{Filename: "a.txt", ContentType: "text/plain", Data: []byte("file")}}
+	if _, err := st.InsertMessage(context.Background(), m, raw, atts); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := st.Attachments(context.Background(), m.ID)
+	if len(list) != 1 {
+		t.Fatalf("attachments: %d", len(list))
+	}
+	cc := func(path string) string {
+		req, _ := http.NewRequest("GET", c.base+path, nil)
+		res, err := c.http.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.Header.Get("Cache-Control")
+	}
+	for path, want := range map[string]string{
+		"/inbox/1":         "no-cache",
+		"/m/" + itoa(m.ID): "no-cache",
+		"/m/" + itoa(m.ID) + "/att/" + itoa(list[0].ID): "no-store",
+		"/m/" + itoa(m.ID) + "/raw":                     "no-store",
+	} {
+		if got := cc(path); !strings.Contains(got, want) {
+			t.Errorf("%s: Cache-Control %q, want %s", path, got, want)
+		}
 	}
 }
