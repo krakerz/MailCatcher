@@ -77,7 +77,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           web.SecurityHeaders(mux),
+		Handler:           web.SecurityHeaders(web.Compress(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

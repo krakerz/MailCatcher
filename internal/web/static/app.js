@@ -1,33 +1,65 @@
-// Live inbox: on a new-message event for this inbox, re-fetch the rows.
-(() => {
-  const list = document.getElementById("messages");
-  if (!list || list.dataset.live !== "1" || !window.EventSource) return;
-  const inbox = list.dataset.inbox;
-  const q = list.dataset.q;
+// The page as the server sent it, before any setup below changes it; kept for Back.
+const initialHTML = document.documentElement.outerHTML;
 
-  async function refresh() {
-    const seen = new Set([...list.querySelectorAll("a.mail-link")].map((a) => a.getAttribute("href")));
-    const picked = new Set([...list.querySelectorAll("[data-bulk-item]:checked")].map((c) => c.value));
-    const res = await fetch(`/inbox/${inbox}/rows` + (q ? `?q=${encodeURIComponent(q)}` : ""), { credentials: "same-origin" });
-    if (!res.ok) return;
-    list.innerHTML = await res.text();
-    for (const a of list.querySelectorAll("a.mail-link")) {
-      if (!seen.has(a.getAttribute("href"))) a.closest(".mail-row").classList.add("new");
-    }
-    for (const c of list.querySelectorAll("[data-bulk-item]")) c.checked = picked.has(c.value);
-    document.dispatchEvent(new Event("bulk-change"));
-  }
-
-  const es = new EventSource("/events");
-  es.addEventListener("message", (ev) => {
+// Per-page setup. Runs on load and again after every in-page navigation (see nav
+// below); listeners on document/window must pass the signal so they end with the page.
+const pageSetups = [];
+const onPage = (fn) => pageSetups.push(fn);
+let pageAbort = new AbortController();
+function setupPage() {
+  pageAbort.abort();
+  pageAbort = new AbortController();
+  for (const fn of pageSetups) {
     try {
-      if (String(JSON.parse(ev.data).inbox) === inbox) refresh();
-    } catch {}
+      fn(pageAbort.signal);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+}
+
+// Live inbox: one event stream per tab, kept across navigations; a new-message
+// event for the open inbox re-fetches its rows.
+async function refreshRows(list) {
+  const seen = new Set([...list.querySelectorAll("a.mail-link")].map((a) => a.getAttribute("href")));
+  const picked = new Set([...list.querySelectorAll("[data-bulk-item]:checked")].map((c) => c.value));
+  const q = list.dataset.q;
+  const res = await fetch(`/inbox/${list.dataset.inbox}/rows` + (q ? `?q=${encodeURIComponent(q)}` : ""), { credentials: "same-origin" });
+  if (!res.ok || !list.isConnected) return;
+  list.innerHTML = await res.text();
+  for (const a of list.querySelectorAll("a.mail-link")) {
+    if (!seen.has(a.getAttribute("href"))) a.closest(".mail-row").classList.add("new");
+  }
+  for (const c of list.querySelectorAll("[data-bulk-item]")) c.checked = picked.has(c.value);
+  document.dispatchEvent(new Event("bulk-change"));
+}
+
+const live = (() => {
+  let es = null;
+  function open() {
+    if (es || !window.EventSource) return;
+    es = new EventSource("/events");
+    es.addEventListener("message", (ev) => {
+      try {
+        const list = document.getElementById("messages");
+        if (list?.dataset.live === "1" && String(JSON.parse(ev.data).inbox) === list.dataset.inbox) refreshRows(list);
+      } catch {}
+    });
+  }
+  // A closed stream lets the browser keep the page for Back (bfcache).
+  addEventListener("pagehide", () => {
+    es?.close();
+    es = null;
   });
+  return { open };
 })();
 
+onPage(() => {
+  if (document.getElementById("messages")?.dataset.live === "1") live.open();
+});
+
 // Theme switch (system / light / dark), remembered per browser; see theme.js.
-(() => {
+onPage((signal) => {
   const buttons = document.querySelectorAll("[data-theme-set]");
   if (!buttons.length) return;
   const read = () => {
@@ -51,18 +83,18 @@
     });
   }
   apply(read());
-})();
+});
 
 // Mobile sidebar.
-(() => {
+onPage((signal) => {
   const shell = document.querySelector("[data-shell]");
   if (!shell) return;
   document.querySelector("[data-nav-toggle]")?.addEventListener("click", () => shell.classList.toggle("nav-open"));
   document.querySelector("[data-nav-close]")?.addEventListener("click", () => shell.classList.remove("nav-open"));
-})();
+});
 
 // Address format preview on the inbox forms.
-(() => {
+onPage((signal) => {
   for (const box of document.querySelectorAll("[data-preview]")) {
     const form = box.closest("form");
     const val = (sel) => (form.querySelector(sel) || {}).value || "";
@@ -96,10 +128,10 @@
     toggleTLD();
     update();
   }
-})();
+});
 
 // Compose: show which catch-all address the identity sends from.
-(() => {
+onPage((signal) => {
   const form = document.querySelector("[data-compose]");
   if (!form) return;
   const inbox = form.querySelector("[data-compose-inbox]");
@@ -116,10 +148,10 @@
   }
   for (const el of [inbox, ident]) el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 250); });
   update();
-})();
+});
 
 // Inline "send verification link" after a send to an unverified address.
-(() => {
+onPage((signal) => {
   for (const box of document.querySelectorAll("[data-add-destination]")) {
     const btn = box.querySelector("button");
     const out = box.querySelector("[data-add-destination-out]");
@@ -132,10 +164,10 @@
       if (r.error) btn.disabled = false;
     });
   }
-})();
+});
 
 // Copy buttons (data-copy="text").
-(() => {
+onPage((signal) => {
   for (const b of document.querySelectorAll("[data-copy]")) {
     b.addEventListener("click", async () => {
       try {
@@ -147,11 +179,11 @@
       } catch {}
     });
   }
-})();
+});
 
 // Rich editor: turns <textarea data-rich> into a basic formatting editor. The
 // textarea keeps the plain-text version; a hidden "html" field carries the markup.
-(() => {
+onPage((signal) => {
   const sprite = (document.querySelector("svg.icon use")?.getAttribute("href") || "/static/icons.svg#").split("#")[0];
   const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="${sprite}#${name}"></use></svg>`;
   const tools = [
@@ -383,10 +415,10 @@
     });
     document.addEventListener("pointerdown", (e) => {
       if (sel && e.target !== sel && !sizeBar.contains(e.target) && e.target !== handle) deselect();
-    });
+    }, { signal });
     area.addEventListener("load", place, true); // images finishing to load shift the layout
     area.addEventListener("scroll", place);
-    window.addEventListener("resize", place);
+    window.addEventListener("resize", place, { signal });
     new MutationObserver(() => sel && !area.contains(sel) && deselect()).observe(area, { childList: true, subtree: true });
 
     picker.addEventListener("change", () => {
@@ -420,10 +452,10 @@
     wrap.append(bar, area, sizeBar, handle);
     ta.after(wrap, html, picker);
   }
-})();
+});
 
 // Bulk selection: select-all, count, swap idle/selection actions, highlight picked rows.
-(() => {
+onPage((signal) => {
   const bar = document.querySelector("[data-bulk]");
   if (!bar) return;
   const all = bar.querySelector("[data-bulk-all]");
@@ -446,14 +478,14 @@
   });
   document.addEventListener("change", (e) => {
     if (e.target.matches?.("[data-bulk-item]")) update();
-  });
-  document.addEventListener("bulk-change", update);
+  }, { signal });
+  document.addEventListener("bulk-change", update, { signal });
   update();
-})();
+});
 
 // Selects that submit their form on change (data-autosubmit). data-confirm-change="question"
 // asks first and puts the previous value back when declined.
-(() => {
+onPage((signal) => {
   for (const sel of document.querySelectorAll("select[data-autosubmit]")) {
     let prev = sel.value;
     sel.addEventListener("change", () => {
@@ -462,10 +494,10 @@
         return;
       }
       prev = sel.value;
-      sel.form.submit();
+      sel.form.requestSubmit(); // through nav, like a button press
     });
   }
-})();
+});
 
 // Ctrl/Cmd+Enter sends a reply, compose or forward form (data-send).
 document.addEventListener("keydown", (e) => {
@@ -481,3 +513,243 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest?.("button[data-confirm]");
   if (b && !confirm(b.dataset.confirm)) e.preventDefault();
 });
+
+// In-page navigation: same-origin links and forms load with fetch and swap <body>,
+// so CSS, JS and the event stream stay loaded. Back/Forward show the kept copy of a
+// page at once and then refresh its live parts ([data-fresh]). Without JS (or
+// data-no-nav) everything falls back to normal page loads.
+const nav = (() => {
+  const KEEP = 20; // pages kept for Back/Forward, in memory only
+  const PREFETCH_TTL = 10000;
+  const pages = new Map(); // history key → { html, y }
+  const prefetched = new Map(); // url → { at, load }
+  const stylesheet = (doc) => doc.querySelector('link[rel="stylesheet"]')?.getAttribute("href");
+  const assets = stylesheet(document);
+  let current = history.state?.nav || newKey();
+  let inflight = null;
+
+  function newKey() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  function keep(key, html) {
+    pages.delete(key);
+    pages.set(key, { html, y: 0 });
+    while (pages.size > KEEP) pages.delete(pages.keys().next().value);
+  }
+  function rememberScroll() {
+    const p = pages.get(current);
+    if (p) p.y = scrollY;
+  }
+
+  // Attachments, raw source and the message body frame stay real downloads/loads.
+  function handled(url) {
+    return url.origin === location.origin && !/^\/(static|api|events)(\/|$)/.test(url.pathname) &&
+      !/^\/m\/\d+\/(att|raw|body)(\/|$)/.test(url.pathname) && url.pathname !== "/logout";
+  }
+
+  async function load(url, init = {}) {
+    const res = await fetch(url, { credentials: "same-origin", ...init });
+    const type = res.headers.get("Content-Type") || "";
+    return { url: res.url, status: res.status, redirected: res.redirected, html: type.startsWith("text/html"), text: await res.text() };
+  }
+
+  function takePrefetch(url) {
+    const p = prefetched.get(url);
+    prefetched.delete(url);
+    return p && Date.now() - p.at < PREFETCH_TTL ? p.load : null;
+  }
+
+  function render(doc) {
+    document.title = doc.title;
+    document.body.replaceWith(document.adoptNode(doc.body));
+    setupPage();
+    document.querySelector("[autofocus]")?.focus();
+  }
+
+  function scrollToPos(y, hash) {
+    const target = hash && document.getElementById(decodeURIComponent(hash.slice(1)));
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, y);
+  }
+
+  function busy(on) {
+    clearTimeout(busy.timer);
+    if (on) busy.timer = setTimeout(() => document.documentElement.classList.add("nav-busy"), 120);
+    else document.documentElement.classList.remove("nav-busy");
+    if (on) document.documentElement.setAttribute("aria-busy", "true");
+    else document.documentElement.removeAttribute("aria-busy");
+  }
+
+  // visit loads url and shows it. opts: method/body for form posts, restore = history
+  // key being returned to (no new history entry), form = the submitting form.
+  async function visit(url, { method = "GET", body = null, restore = null, form = null } = {}) {
+    inflight?.abort();
+    const ctrl = (inflight = new AbortController());
+    if (method !== "GET") prefetched.clear();
+    busy(true);
+    let r;
+    try {
+      r = await ((method === "GET" && takePrefetch(url)) || load(url, { method, body, signal: ctrl.signal }));
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      busy(false);
+      if (method === "GET") location.assign(url); // let the browser show what went wrong
+      else {
+        form?.querySelectorAll("button, input[type=submit]").forEach((b) => (b.disabled = false));
+        alert("Could not reach mailcatcher. Nothing was sent; try again.");
+      }
+      return;
+    }
+    if (ctrl.signal.aborted) return;
+    inflight = null;
+    busy(false);
+    if (!r.html && r.status === 401) return location.assign("/login?next=" + encodeURIComponent(location.pathname + location.search));
+    if (!r.html) {
+      if (method === "GET") return location.assign(r.url);
+      r.html = true; // a plain-text error from a post: show it like the browser would
+      const pre = document.createElement("pre");
+      pre.textContent = r.text;
+      r.text = `<!doctype html><title>${r.status}</title><body><main class="content">${pre.outerHTML}</main></body>`;
+    }
+    const doc = new DOMParser().parseFromString(r.text, "text/html");
+    if (doc.querySelector('link[rel="stylesheet"]') && stylesheet(doc) !== assets) return location.assign(r.url); // new version deployed
+    if (method !== "GET") pages.clear(); // anything kept may be out of date now
+
+    rememberScroll();
+    const hash = method === "GET" ? new URL(url).hash : "";
+    const moved = method === "GET" || r.redirected; // the answer is a page of its own
+    if (restore) {
+      current = restore;
+    } else if (moved && r.url !== location.href.split("#")[0]) {
+      current = newKey();
+      history.pushState({ nav: current }, "", r.url + hash);
+    } else {
+      // Same page again, or a form re-shown with an error: no new history entry.
+      history.replaceState({ nav: current }, "", moved ? r.url + hash : location.href);
+    }
+    keep(current, r.text);
+    render(doc);
+    scrollToPos(0, hash);
+  }
+
+  // Shows a kept page at once, then swaps in fresh [data-fresh] parts (unread counts, mail list).
+  async function revalidate(key) {
+    let r;
+    try {
+      r = await load(location.href);
+    } catch {
+      return;
+    }
+    if (key !== current || !r.html || r.redirected) return;
+    const doc = new DOMParser().parseFromString(r.text, "text/html");
+    for (const el of document.querySelectorAll("[data-fresh][id]")) {
+      const fresh = doc.getElementById(el.id);
+      if (fresh) el.replaceWith(document.adoptNode(fresh));
+    }
+    document.dispatchEvent(new Event("bulk-change"));
+    const p = pages.get(key);
+    if (p) p.html = r.text;
+  }
+
+  addEventListener("popstate", (e) => {
+    const key = e.state?.nav;
+    if (!key || key === current) return; // an in-page #anchor
+    inflight?.abort();
+    busy(false);
+    rememberScroll();
+    const p = pages.get(key);
+    if (!p) return visit(location.href, { restore: key });
+    current = key;
+    render(new DOMParser().parseFromString(p.html, "text/html"));
+    scrollToPos(p.y);
+    revalidate(key);
+  });
+
+  // Restored from the browser's own Back cache (left the app and came back).
+  addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    if (document.getElementById("messages")?.dataset.live === "1") live.open();
+    revalidate(current);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest?.("a[href]");
+    if (!a || a.target || a.hasAttribute("download") || a.closest("[data-no-nav]")) return;
+    const url = new URL(a.href, location.href);
+    if (!handled(url)) return;
+    if (url.hash && url.pathname === location.pathname && url.search === location.search) return;
+    e.preventDefault();
+    visit(url.href);
+  });
+
+  // Browsers that cannot put the clicked button into FormData submit natively
+  // (buttons carry values like action=disable).
+  const submitterOK = (() => {
+    try {
+      const f = document.createElement("form");
+      const b = document.createElement("button");
+      b.name = "x";
+      f.append(b);
+      return new FormData(f, b).has("x");
+    } catch {
+      return false;
+    }
+  })();
+
+  document.addEventListener("submit", (e) => {
+    const form = e.target;
+    if (e.defaultPrevented || !submitterOK || form.closest("[data-no-nav]")) return;
+    const sub = e.submitter;
+    // getAttribute, not form.action/method: inputs named "action" shadow those properties.
+    const method = (sub?.getAttribute("formmethod") || form.getAttribute("method") || "get").toLowerCase();
+    const url = new URL(sub?.getAttribute("formaction") || form.getAttribute("action") || location.href, location.href);
+    if (form.getAttribute("target") || (method !== "get" && method !== "post") || !handled(url)) return;
+    const data = new FormData(form, sub);
+    e.preventDefault();
+    if (method === "get") {
+      url.search = new URLSearchParams(data).toString();
+      url.hash = "";
+      return visit(url.href);
+    }
+    const multipart = (sub?.getAttribute("formenctype") || form.getAttribute("enctype")) === "multipart/form-data";
+    form.querySelectorAll("button, input[type=submit]").forEach((b) => (b.disabled = true)); // no double sends
+    visit(url.href, { method: "POST", body: multipart ? data : new URLSearchParams(data), form });
+  });
+
+  // Hovering a link for a moment starts loading it. Not message links: opening a
+  // message marks it read.
+  let hoverTimer;
+  function prefetch(a) {
+    if (a.target || a.hasAttribute("download") || a.closest("[data-no-nav]")) return;
+    const url = new URL(a.href, location.href);
+    url.hash = "";
+    if (!handled(url) || /^\/m\/\d+$/.test(url.pathname) || url.href === location.href.split("#")[0]) return;
+    const p = prefetched.get(url.href);
+    if (p && Date.now() - p.at < PREFETCH_TTL) return;
+    const entry = { at: Date.now(), load: load(url.href) };
+    entry.load.catch(() => prefetched.delete(url.href));
+    prefetched.set(url.href, entry);
+  }
+  document.addEventListener("mouseover", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (!a || a.contains(e.relatedTarget)) return;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => prefetch(a), 80);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (a && !a.contains(e.relatedTarget)) clearTimeout(hoverTimer);
+  });
+  document.addEventListener("touchstart", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (a) prefetch(a);
+  }, { passive: true });
+
+  history.scrollRestoration = "manual";
+  history.replaceState({ ...history.state, nav: current }, "");
+  keep(current, initialHTML);
+  return { visit };
+})();
+
+setupPage();

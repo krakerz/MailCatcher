@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-17
+
+### Changed
+- Pages and static files are sent compressed and static files are cached by the browser, so the web UI loads faster
+- Links and forms in the web UI load without a full page reload; Back and Forward are instant
+- Links start loading when hovered (except messages, so hovering never marks mail read)
+- The browser may keep pages for instant Back; attachments and message source are still never stored
+
+### Fixed
+- Reloading a page after adding a user, saving a setting or changing a rule no longer repeats the action
+
 ## [0.1.0] — 2026-10-17
 
 ### Added

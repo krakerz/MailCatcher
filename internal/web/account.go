@@ -120,7 +120,9 @@ type passwordData struct {
 }
 
 func (s *Server) passwordPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "password", "Change password", passwordData{Forced: current(r).User.MustChangePassword})
+	d := takeFlash[passwordData](s, r)
+	d.Forced = current(r).User.MustChangePassword
+	s.render(w, r, "password", "Change password", d)
 }
 
 func (s *Server) passwordSubmit(w http.ResponseWriter, r *http.Request) {
@@ -158,5 +160,5 @@ func (s *Server) passwordSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, "password", "Change password", passwordData{Saved: "Password changed. Other sessions were logged out."})
+	s.redirectFlash(w, r, "/account/password", passwordData{Saved: "Password changed. Other sessions were logged out."})
 }

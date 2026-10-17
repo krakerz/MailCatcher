@@ -17,7 +17,7 @@
 {{with $d.Fetched}}<p class="notice">{{icon "circle-check"}}<span>Refreshed{{if ne . "0"}} — collected {{.}} message(s) that were waiting at Cloudflare{{end}}.</span></p>{{end}}
 <div class="list-card">
 {{template "bulkbar" (dict "CSRF" .CSRF "Back" (printf "/inbox/%d" $d.Inbox.ID) "Read" true "AllRead" (printf "/inbox/%d/read" $d.Inbox.ID))}}
-<div class="mail-list" id="messages" data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}" data-rows>
+<div class="mail-list" id="messages" data-fresh data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}" data-rows>
 {{template "rows" $d}}
 </div>
 </div>

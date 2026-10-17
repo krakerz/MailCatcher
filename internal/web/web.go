@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,6 +49,7 @@ type Server struct {
 	Drain func(ctx context.Context) (int, error)
 
 	pages map[string]*template.Template
+	flash flashes
 }
 
 func New(st *store.Store, b *events.Broker, domain string, cookieSecure bool) (*Server, error) {
@@ -277,15 +279,29 @@ func SecurityHeaders(h http.Handler) http.Handler {
 		hd.Set("X-Content-Type-Options", "nosniff")
 		// no-transform stops Cloudflare from injecting its analytics beacon and rewriting
 		// email addresses (Email Obfuscation) in pages; mail is never cached anywhere.
-		if strings.HasPrefix(r.URL.Path, "/static/") {
+		if strings.HasPrefix(r.URL.Path, "/static/") && r.URL.Query().Get("v") == assetVersion {
+			// Versioned URL (asset helper): content can never change under it.
+			hd.Set("Cache-Control", "public, max-age=31536000, immutable, no-transform")
+		} else if strings.HasPrefix(r.URL.Path, "/static/") {
 			hd.Set("Cache-Control", "public, max-age=300, no-transform")
-		} else {
+		} else if noStore(r.URL.Path) {
 			hd.Set("Cache-Control", "private, no-store, no-transform")
+		} else {
+			// Pages may stay in this browser (instant Back) but are re-checked before reuse.
+			hd.Set("Cache-Control", "private, no-cache, no-transform")
 		}
 		// Not no-referrer: Chrome then sends "Origin: null" on form posts, breaking the login Origin check.
 		hd.Set("Referrer-Policy", "same-origin")
 		h.ServeHTTP(w, r)
 	})
+}
+
+var attachmentPath = regexp.MustCompile(`^/m/\d+/(att|raw)(/|$)`)
+
+// noStore: attachments and message sources never land in a browser cache; the API is
+// for scripts, which have no use for one.
+func noStore(path string) bool {
+	return attachmentPath.MatchString(path) || strings.HasPrefix(path, "/api/")
 }
 
 type page struct {
