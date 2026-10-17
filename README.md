@@ -9,7 +9,7 @@ mailcatcher receives every email sent to any address on your domain through Clou
 ## Features
 
 - Catch-all inbox for a whole domain
-- Virtual inboxes by address list or address format (e.g. `b.gmail`, `b=gmail.com`); the real recipient is decoded and shown
+- Virtual inboxes by address list or address format (e.g. `jane.gmail`, `jane=gmail.com`); the real recipient is decoded and shown
 - Web UI with login, light/dark theme and user management, including per-user inbox access
 - Reply, compose and forward to verified addresses
 - Destination-address list (Cloudflare API) in the UI; admins add and remove addresses, and sending is checked against verified ones first
@@ -56,9 +56,9 @@ Open `https://<app hostname>` and log in. The inbox updates live as mail arrives
 
 **Sending** (free plan: only to [verified destination addresses](docs/SETUP.md#2-enable-email-routing)):
 
-- **Reply** — from the catch-all address the mail was sent to (e.g. `b.gmail@<domain>`) to the original sender (its `Reply-To` if set), threaded and optionally quoting the original.
+- **Reply** — from the catch-all address the mail was sent to (e.g. `jane.gmail@<domain>`) to the original sender (its `Reply-To` if set), threaded and optionally quoting the original.
 - **Forward** — to a verified address with the original attached as `.eml`; replies go to the original sender, or back into mailcatcher if you choose.
-- **Compose** — pick an inbox and the real address to send as (`b@gmail.com`); it is sent from the matching catch-all address.
+- **Compose** — pick an inbox and the real address to send as (`jane@gmail.com`); it is sent from the matching catch-all address.
 - Reply and compose have a basic rich editor (bold, italic, lists, quote, links, inline images — paste or pick them) and send HTML with a plain-text version; several attachments per mail, 18 MB in total. Click an inline image to resize it (Small / Medium / Large / Original) or drag its corner; large PNG, JPEG and WebP images are scaled down before sending.
 - Ctrl+Enter (Cmd+Enter on Mac) sends the reply, compose or forward form.
 - **Sent** is per inbox: each inbox has a Sent tab next to Received, listing the mail sent from it and who sent each one; a message shows the replies and forwards sent from it.
@@ -72,20 +72,20 @@ The interface has a light and a dark theme (follows the system by default; switc
 
 ### Inboxes and address formats
 
-Mail to any address on the catch-all domain lands in an inbox. Each inbox has an **address format** that maps the catch-all address back to the real address it stands for, so `b.gmail@<domain>` is shown as `b@gmail.com`:
+Mail to any address on the catch-all domain lands in an inbox. Each inbox has an **address format** that maps the catch-all address back to the real address it stands for, so `jane.gmail@<domain>` is shown as `jane@gmail.com`:
 
-| Format | `b@gmail.com` becomes | Notes |
+| Format | `jane@gmail.com` becomes | Notes |
 |---|---|---|
-| `{local}.{name}` | `b.gmail@<domain>` | Mailosaur style; needs an assumed TLD (`com`), so only `<name>.com` addresses fit. |
-| `{local}={domain}` | `b=gmail.com@<domain>` | Any domain. |
-| `{local}+{domain}` | `b+gmail.com@<domain>` | Any domain. |
-| `{inbox}-{local}={domain}` | `team1-b=gmail.com@<domain>` | The `{inbox}` marker (the inbox slug) lets several inboxes share one domain. |
+| `{local}.{name}` | `jane.gmail@<domain>` | Mailosaur style; needs an assumed TLD (`com`), so only `<name>.com` addresses fit. |
+| `{local}={domain}` | `jane=gmail.com@<domain>` | Any domain. |
+| `{local}+{domain}` | `jane+gmail.com@<domain>` | Any domain. |
+| `{inbox}-{local}={domain}` | `team1-jane=gmail.com@<domain>` | The `{inbox}` marker (the inbox slug) lets several inboxes share one domain. |
 
 Tokens: `{local}`, `{domain}`, `{name}` (domain without TLD), `{tld}`, `{inbox}`. Admins manage inboxes under **Inboxes**; the form shows a live preview and warns about ambiguous formats.
 
-**One inbox per team or app:** give each inbox a slug and a format with the `{inbox}` marker, e.g. slug `team1` and `{inbox}-{domain}~{local}`: `b@gmail.com` is sent to as `team1-gmail.com~b@<domain>`, lands in that inbox and is shown as `b@gmail.com`; replies from MailCatcher come from that address, so the sending app can decode it back the same way.
+**One inbox per team or app:** give each inbox a slug and a format with the `{inbox}` marker, e.g. slug `team1` and `{inbox}-{domain}~{local}`: `jane@gmail.com` is sent to as `team1-gmail.com~jane@<domain>`, lands in that inbox and is shown as `jane@gmail.com`; replies from MailCatcher come from that address, so the sending app can decode it back the same way.
 
-**Address lists** pin specific addresses to an inbox: one catch-all address per line, `*` as wildcard. For example Default (`{local}.{name}`), Inbox A with `b.gmail@<domain>`, Inbox C with `support@<domain>`: mail to `a.gmail@…` lands in Default, `b.gmail@…` in Inbox A (still shown as `b@gmail.com`), `support@…` in Inbox C.
+**Address lists** pin specific addresses to an inbox: one catch-all address per line, `*` as wildcard. For example Default (`{local}.{name}`), Inbox A with `jane.gmail@<domain>`, Inbox C with `support@<domain>`: mail to `john.gmail@…` lands in Default, `jane.gmail@…` in Inbox A (still shown as `jane@gmail.com`), `support@…` in Inbox C.
 
 Routing order: inboxes with an address list (by priority, lowest first), then inboxes matched by domain and format (by priority), and the default inbox takes the rest. An inbox can also have its own domain (that domain needs its own Email Routing catch-all to the Worker). Changing formats affects new mail; **Re-apply routing** re-sorts stored mail.
 
@@ -96,9 +96,9 @@ Full reference with examples: **[docs/API.md](docs/API.md)**.
 Generate a key under **Inboxes → Generate**, then send it as a Bearer token. A key only sees its own inbox.
 
 ```sh
-# Wait up to 30 s for a mail to b@gmail.com (sent as b.gmail@<domain>), return as soon as it arrives
+# Wait up to 30 s for a mail to jane@gmail.com (sent as jane.gmail@<domain>), return as soon as it arrives
 curl -H "Authorization: Bearer $MC_API_KEY" \
-  "https://<app hostname>/api/inboxes/1/messages?to=b@gmail.com&wait=30s"
+  "https://<app hostname>/api/inboxes/1/messages?to=jane@gmail.com&wait=30s"
 ```
 
 | Method | Path | Description |
