@@ -116,7 +116,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /compose/from", s.user(s.composeFrom))
 	mux.Handle("GET /sent", s.user(s.sentPage))
 	mux.Handle("GET /destinations", s.user(s.destinationsPage))
-	mux.Handle("POST /destinations", s.user(s.destinationAdd))
+	mux.Handle("POST /destinations", s.admin(s.destinationAdd))
 	mux.Handle("POST /destinations/sync", s.user(s.destinationSync))
 	mux.Handle("POST /destinations/remove", s.admin(s.destinationRemove))
 
@@ -300,6 +300,9 @@ type page struct {
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	p := page{Title: title, Data: data, Path: r.URL.Path}
+	if d, ok := data.(sentData); ok && d.InboxID != 0 {
+		p.Path = "/inbox/" + strconv.FormatInt(d.InboxID, 10) // a Sent list highlights its inbox
+	}
 	if c := current(r); c != nil {
 		p.User, p.CSRF = c.User, c.Session.CSRF
 		all, _ := s.Store.ListInboxes(r.Context())

@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}{{$m := $d.M}}
 <p class="crumbs">
-  {{if eq $m.Direction "out"}}<a href="/sent">{{icon "arrow-left"}} Sent</a>{{else}}<a href="/inbox/{{$d.Inbox.ID}}">{{icon "arrow-left"}} {{$d.Inbox.Name}}</a>{{end}}
+  {{if eq $m.Direction "out"}}<a href="/sent?inbox={{$m.InboxID}}">{{icon "arrow-left"}} {{$d.Inbox.Name}} · Sent</a>{{else}}<a href="/inbox/{{$d.Inbox.ID}}">{{icon "arrow-left"}} {{$d.Inbox.Name}}</a>{{end}}
   {{with $m.ParentID}} · <a href="/m/{{.}}">In reply to an earlier message</a>{{end}}
 </p>
 {{if $d.JustSent}}<p class="notice">{{icon "circle-check"}}<span>Sent. <a href="/m/{{$d.JustSent}}">View the sent message</a>.</span></p>{{end}}
@@ -9,25 +9,27 @@
 <section class="card">
   <div class="msg-head">
     <span class="avatar h{{hue $m.From.Address}}">{{initial $m.From.Name $m.From.Address}}</span>
-    <div>
+    <div class="msg-title">
       <h1>{{orNone $m.Subject}}</h1>
       <div class="muted">{{addr $m.From}}</div>
     </div>
+    <div class="msg-tools">
     {{if eq $m.Direction "in"}}
     <nav class="actions">
       <a class="button" href="/m/{{$m.ID}}/reply">{{icon "reply"}} Reply</a>
       <a class="button secondary" href="/m/{{$m.ID}}/forward">{{icon "forward"}} Forward</a>
       <form method="post" action="/m/{{$m.ID}}/unread" class="inline">
         <input type="hidden" name="csrf" value="{{$.CSRF}}">
-        <button class="secondary" title="Mark as unread and go back to the inbox">{{icon "mail"}} Mark unread</button>
+        <button class="secondary" title="Mark as unread and go back to the inbox" aria-label="Mark unread">{{icon "mail"}}<span class="label">Mark unread</span></button>
       </form>
     </nav>
     {{end}}
-    <form method="post" action="/messages/bulk" class="inline{{if ne $m.Direction "in"}} push-right{{end}}" data-bulk-single>
+    <form method="post" action="/messages/bulk" class="inline" data-bulk-single>
       <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{$m.ID}}">
-      <input type="hidden" name="back" value="{{if eq $m.Direction "out"}}/sent{{else}}/inbox/{{$m.InboxID}}{{end}}">
+      <input type="hidden" name="back" value="{{if eq $m.Direction "out"}}/sent?inbox={{$m.InboxID}}{{else}}/inbox/{{$m.InboxID}}{{end}}">
       <button class="danger" name="action" value="delete" data-confirm="Delete this message? This cannot be undone." title="Delete">{{icon "trash-2"}}</button>
     </form>
+    </div>
   </div>
 
   <table class="meta facts">

@@ -210,3 +210,34 @@ func TestRichReplyQuotesHTML(t *testing.T) {
 		t.Errorf("text: %q", p.Text)
 	}
 }
+
+func TestRichImageWidth(t *testing.T) {
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	img := func(src, extra string) string {
+		rb, err := PrepareHTML(`<p><img src="`+src+`" `+extra+`></p>`, "x.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rb.HTML
+	}
+	for _, src := range []string{"data:image/png;base64," + png, "https://x.test/a.png"} {
+		out := img(src, `width="320" height="99" class="sel" onerror="x()" style="width:1px"`)
+		if !strings.Contains(out, ` width="320"`) || !strings.Contains(out, `style="max-width:100%;height:auto"`) {
+			t.Errorf("width not kept: %s", out)
+		}
+		for _, bad := range []string{"height=", "class", "onerror", "width:1px", `width="1"`} {
+			if strings.Contains(out, bad) {
+				t.Errorf("leaks %q: %s", bad, out)
+			}
+		}
+		for _, w := range []string{"abc", "-5", "0", "4001", "99999999999", "50%", "320px", "3.5", "0320", ""} {
+			out := img(src, `width="`+w+`"`)
+			if strings.Contains(out, "width=") {
+				t.Errorf("width %q kept: %s", w, out)
+			}
+			if !strings.Contains(out, `style="max-width:100%;height:auto"`) {
+				t.Errorf("width %q lost style: %s", w, out)
+			}
+		}
+	}
+}

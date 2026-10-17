@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-10-17
+
 ### Added
 - Project scaffold: Go app, Cloudflare Email Worker, Docker Compose with cloudflared
 - Incoming mail is stored with its raw source, attachments, extracted links and verification codes
@@ -33,8 +35,14 @@
 - Forward rules match the real recipient (e.g. `any@example.com`) in each inbox's address format; overlapping rules forward once per destination; rules that can never fire are flagged
 - Testing an address on the Rules page warns when it is malformed or its domain is not one of yours
 - Select messages in the inbox and Sent lists to mark read, mark unread or delete them; delete from the message page
+- Each inbox has Received and Sent tabs; the selection bar offers Mark read, Mark unread and Delete, or Mark all read when nothing is selected
+- Clicking anywhere on a message row opens it
+- Tables scroll sideways on phones
+- Changing a user's role saves immediately and asks before demoting an admin
+- Only admins can add destination addresses and send verification links
+- Inline images in the editor can be resized; large images are shrunk automatically
+- Ctrl+Enter (Cmd+Enter) sends a reply, compose or forward
 - Empty lists show their message centred
-- Sent can be filtered per inbox and shows each message's inbox
 - The inbox form tells where mail to an example address really lands, and flags conflicts with other inboxes
 - File pickers follow the light/dark theme
 - Reply and forward pages show the original message

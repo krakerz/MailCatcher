@@ -92,12 +92,15 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
 /* ---------- building blocks ---------- */
 .page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 .page-head .spacer { flex: 1; }
+.page-head > .muted { text-align: right; }
+@media (max-width: 700px) { .page-head > .muted { order: 1; flex-basis: 100%; text-align: left; } }
 .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; font-size: 13px; color: var(--muted); }
 .crumbs a { display: inline-flex; align-items: center; gap: 4px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-top: 16px; box-shadow: var(--shadow); }
 .card > h2:first-child { margin-top: 0; }
 .narrow { max-width: 380px; margin: 12vh auto 0; }
+.form-narrow { max-width: 440px; margin-top: 0; }
 .login-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 18px; }
 .login-brand img { width: 56px; height: 56px; }
 
@@ -166,11 +169,17 @@ input.short, .short input { width: 96px; }
 
 /* tables (admin pages) */
 table.list { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+/* Card look on the wrapper so a wide table scrolls sideways instead of being clipped. */
+.table-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; box-shadow: var(--shadow); }
+.table-wrap > table.list { border: 0; border-radius: 0; box-shadow: none; overflow: visible; }
+@media (max-width: 700px) { table.list { min-width: 640px; } }
 table.list th, table.list td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 table.list tr:last-child td { border-bottom: 0; }
 table.list th { font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--sidebar); }
 table.list tr.muted td { opacity: .6; }
 table.list select { width: auto; padding: 4px 8px; }
+/* Last column of row buttons: hugs its buttons and sits on the right edge. */
+table.list td.row-actions { width: 1%; white-space: nowrap; text-align: right; }
 table.meta { border-collapse: collapse; }
 table.meta th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 18px 3px 0; vertical-align: top; white-space: nowrap; }
 table.meta td { padding: 3px 0; word-break: break-word; }
@@ -211,7 +220,16 @@ table.meta td { padding: 3px 0; word-break: break-word; }
 .msg-head { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
 .msg-head .avatar { width: 42px; height: 42px; font-size: 17px; }
 .msg-head h1 { margin-bottom: 2px; }
-.actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.msg-title { min-width: 0; overflow-wrap: anywhere; }
+.msg-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Phones: the tools get their own row under the title, Mark unread shrinks to its icon. */
+@media (max-width: 700px) {
+  .msg-title { flex: 1; }
+  .msg-tools { flex: 1 1 100%; margin-left: 0; justify-content: flex-end; }
+  .msg-tools .actions { flex: 1; flex-wrap: nowrap; }
+  .msg-head .actions .label { display: none; }
+}
 .facts { margin-top: 14px; }
 iframe.body { display: block; width: 100%; height: 70vh; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 iframe.body.short { height: 45vh; }
@@ -240,7 +258,7 @@ ul.help { color: var(--muted); padding-left: 18px; }
 .keyline { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 code.key { font-size: 13px; padding: 6px 10px; background: var(--panel); border: 1px solid var(--line); user-select: all; word-break: break-all; }
 .card + h2, section + h2 { margin-top: 24px; }
-.editor { border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); margin-top: 6px; overflow: hidden; }
+.editor { position: relative; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); margin-top: 6px; overflow: hidden; }
 .editor:focus-within { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
 .editor-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 6px; border-bottom: 1px solid var(--line); background: var(--sidebar); flex-wrap: wrap; }
 .editor-toolbar button { background: none; border: 0; color: var(--muted); padding: 6px; border-radius: 6px; }
@@ -251,7 +269,17 @@ code.key { font-size: 13px; padding: 6px 10px; background: var(--panel); border:
 .editor-area blockquote { margin: .4em 0; padding-left: 12px; border-left: 3px solid var(--line-strong); color: var(--muted); }
 .editor-area img { max-width: 100%; height: auto; border-radius: 4px; }
 .editor-area a { color: var(--accent); }
+.editor-area img.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.img-tools { position: absolute; z-index: 5; display: flex; gap: 2px; padding: 3px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); }
+.img-tools[hidden], .img-handle[hidden] { display: none; }
+.img-tools button { background: none; border: 0; color: var(--muted); padding: 4px 9px; font-size: 12.5px; border-radius: 6px; }
+.img-tools button:hover { background: var(--row-hover); color: var(--fg); }
+.img-tools button.active { background: var(--accent-soft); color: var(--accent); }
+.img-tools button.danger { color: var(--danger); }
+.img-tools button.danger:hover { background: var(--danger-soft); color: var(--danger); }
+.img-handle { position: absolute; z-index: 5; width: 12px; height: 12px; background: var(--accent); border: 2px solid var(--panel); border-radius: 3px; cursor: nwse-resize; touch-action: none; }
 .field { margin-bottom: 12px; }
+table.meta + .field, table.meta + label { margin-top: 14px; }
 .field-label { display: block; font-weight: 550; font-size: 13px; }
 .field > textarea { margin-top: 6px; }
 .preview .lands { color: var(--ok); font-family: inherit; }
@@ -266,9 +294,21 @@ code.key { font-size: 13px; padding: 6px 10px; background: var(--panel); border:
 .mail-row.unread .avatar { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
 .mail-link { display: contents; color: inherit; }
 .mail-link:hover { text-decoration: none; }
-label.pick { display: flex; align-items: center; justify-content: center; margin: 0; }
+/* The link covers the whole row (gaps and padding too); the checkbox sits above it. */
+.mail-row { position: relative; }
+.mail-link::after { content: ""; position: absolute; inset: 0; }
+label.pick { display: flex; align-items: center; justify-content: center; margin: 0; position: relative; z-index: 1; }
 table.list th.pick, table.list td.pick { width: 36px; padding-right: 0; }
 .mail-row.picked, table.list tr.picked td { background: var(--accent-soft); }
-.bulkbar { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 4px; flex-wrap: wrap; }
-.bulkbar label.check { margin: 0 6px 0 12px; color: var(--muted); font-size: 13px; }
+/* List card: the bulk bar is the card's header row, the list or table sits below it. */
+.list-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.list-card > .mail-list { border: 0; border-radius: 0; box-shadow: none; }
+.bulkbar { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 16px; min-height: 46px; flex-wrap: wrap; background: var(--sidebar); border-bottom: 1px solid var(--line); }
+.bulkbar label.check { margin: 0 6px 0 0; color: var(--muted); font-size: 13px; }
+.bulk-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bulkbar[hidden], .bulk-group[hidden] { display: none; }
+/* Title on its own line, tabs and tools on the line below. */
+.page-head.stack h1 { flex-basis: 100%; }
+button.icon-btn, a.button.icon-btn { padding: 8px 9px; }
+@media (max-width: 700px) { .page-head.stack .search { order: 1; flex: 1 1 100%; } }
 .push-right { margin-left: auto; }

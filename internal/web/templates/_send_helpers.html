@@ -17,19 +17,26 @@
 </select>
 {{else}}
 <input name="{{.Name}}" type="email" value="{{.Value}}" required placeholder="any@example.com">
-<span class="muted">No verified addresses known yet — add them under <a href="/destinations">Destinations</a>.</span>
+<span class="muted">No verified addresses known yet — an admin can add them under <a href="/destinations">Destinations</a>.</span>
 {{end}}
 {{end}}
 
 {{define "bulkbar"}}
-{{/* dot: dict CSRF, Back, Read (bool: offer read/unread) */}}
+{{/* dot: dict CSRF, Back, Read (bool: offer read/unread), AllRead (optional: mark-all-read URL) */}}
 <form id="bulk" method="post" action="/messages/bulk" class="bulkbar" data-bulk>
   <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="{{.Back}}">
-  <label class="check"><input type="checkbox" data-bulk-all aria-label="Select all"> <span data-bulk-count>Select</span></label>
-  {{if .Read}}
-  <button class="secondary small" name="action" value="read" disabled>{{icon "mail-open"}} Mark read</button>
-  <button class="secondary small" name="action" value="unread" disabled>{{icon "mail"}} Mark unread</button>
+  <label class="check"><input type="checkbox" data-bulk-all aria-label="Select all"> <span data-bulk-count>Select all</span></label>
+  <span class="bulk-group" data-bulk-actions hidden>
+    {{if .Read}}
+    <button class="secondary small" name="action" value="read">{{icon "mail-open"}} Mark read</button>
+    <button class="secondary small" name="action" value="unread">{{icon "mail"}} Mark unread</button>
+    {{end}}
+    <button class="danger small" name="action" value="delete" data-confirm="Delete the selected messages? This cannot be undone.">{{icon "trash-2"}} Delete</button>
+  </span>
+  {{with .AllRead}}
+  <span class="bulk-group push-right" data-bulk-idle>
+    <button class="secondary small" formaction="{{.}}" title="Mark everything here as read">{{icon "mail-open"}} Mark all read</button>
+  </span>
   {{end}}
-  <button class="danger small" name="action" value="delete" disabled data-confirm="Delete the selected messages? This cannot be undone.">{{icon "trash-2"}} Delete</button>
 </form>
 {{end}}

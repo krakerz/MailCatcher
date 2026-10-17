@@ -4,7 +4,7 @@
 <h1>Reply</h1>
 {{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{template "unverified" $d.Unverified}}
-<form method="post" action="/m/{{$m.ID}}/reply" enctype="multipart/form-data" class="card">
+<form method="post" action="/m/{{$m.ID}}/reply" enctype="multipart/form-data" class="card" data-send>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <table class="meta">
     <tr><th>From</th><td class="mono">{{$m.EnvelopeTo}}{{with $m.DecodedTo}} <span class="muted">(as {{.}})</span>{{end}}</td></tr>
@@ -14,7 +14,7 @@
   <div class="field"><span class="field-label">Message</span><textarea name="text" rows="10" autofocus data-rich data-html="{{$d.HTML}}" aria-label="Message">{{$d.Text}}</textarea></div>
   <label class="check"><input type="checkbox" name="quote" value="1"{{if $d.Quote}} checked{{end}}> Quote the original message</label>
   <label>Attachments <input type="file" name="files" multiple></label>
-  <button>Send reply</button>
+  <button title="Ctrl+Enter">Send reply</button>
 </form>
 {{template "original" $m}}
 {{end}}

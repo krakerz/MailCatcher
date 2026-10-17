@@ -162,6 +162,33 @@
     ["removeFormat", "remove-formatting", "Clear formatting"],
   ];
   const MAX_IMAGE = 5 * 1024 * 1024;
+  const MAX_DIM = 1600; // wider images are redrawn at this width before they are embedded
+  const FIT = 600; // wider images are shown at this width until resized
+  const MIN_W = 40;
+  const sizes = [["Small", 240], ["Medium", 480], ["Large", 720], ["Original", 0]];
+
+  // Redraws a big png/jpeg/webp data URL at MAX_DIM wide; any failure keeps the original.
+  function shrink(url, type) {
+    if (!/^image\/(png|jpeg|webp)$/.test(type)) return Promise.resolve(url);
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.onerror = () => resolve(url);
+      im.onload = () => {
+        try {
+          if (im.naturalWidth <= MAX_DIM) return resolve(url);
+          const c = document.createElement("canvas");
+          c.width = MAX_DIM;
+          c.height = Math.max(1, Math.round((im.naturalHeight * MAX_DIM) / im.naturalWidth));
+          c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+          const out = c.toDataURL(type, 0.9);
+          resolve(out.startsWith("data:" + type) && out.length < url.length ? out : url);
+        } catch {
+          resolve(url);
+        }
+      };
+      im.src = url;
+    });
+  }
 
   for (const ta of document.querySelectorAll("textarea[data-rich]")) {
     const form = ta.closest("form");
@@ -214,12 +241,154 @@
       if (!file || !file.type.startsWith("image/")) return;
       if (file.size > MAX_IMAGE) return alert("Images up to 5 MB, please.");
       const r = new FileReader();
-      r.onload = () => {
+      r.onload = async () => {
+        const url = await shrink(r.result, file.type);
         area.focus();
-        document.execCommand("insertImage", false, r.result);
+        document.execCommand("insertImage", false, url);
+        const img = [...area.querySelectorAll("img")].find((i) => i.getAttribute("src") === url && !i.hasAttribute("width"));
+        if (img) fit(img);
       };
       r.readAsDataURL(file);
     }
+    // Shows a freshly inserted image at FIT wide when it is bigger than that.
+    function fit(img) {
+      const f = () => {
+        if (img.naturalWidth > FIT) img.setAttribute("width", FIT);
+        place();
+      };
+      if (img.complete && img.naturalWidth) f();
+      else img.addEventListener("load", f, { once: true });
+    }
+
+    // Image selection: a floating size toolbar and a corner drag handle, both
+    // outside the editable area so they never end up in the mail.
+    const sizeBar = document.createElement("div");
+    sizeBar.className = "img-tools";
+    sizeBar.setAttribute("role", "toolbar");
+    sizeBar.setAttribute("aria-label", "Image size");
+    sizeBar.hidden = true;
+    const handle = document.createElement("div");
+    handle.className = "img-handle";
+    handle.hidden = true;
+    let sel = null;
+    let resizeObs = null;
+
+    const maxWidth = (img) => {
+      const cs = getComputedStyle(area);
+      const room = area.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return Math.max(MIN_W, Math.min(img.naturalWidth || Infinity, room));
+    };
+    const setWidth = (img, w) => {
+      if (w) img.setAttribute("width", Math.round(w));
+      else img.removeAttribute("width");
+      place();
+    };
+
+    for (const [label, px] of sizes) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.dataset.size = px;
+      b.addEventListener("click", () => sel && setWidth(sel, px && Math.min(px, sel.naturalWidth || px)));
+      sizeBar.append(b);
+    }
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Remove";
+    del.addEventListener("click", removeSelected);
+    sizeBar.append(del);
+    sizeBar.addEventListener("mousedown", (e) => e.preventDefault()); // keep the caret
+
+    function removeSelected() {
+      if (!sel) return;
+      sel.remove();
+      deselect();
+      area.focus();
+    }
+
+    // Moves the toolbar and handle to the selected image, hiding them when it is scrolled out of view.
+    function place() {
+      if (!sel) return;
+      if (!area.contains(sel)) return deselect();
+      const r = sel.getBoundingClientRect();
+      const a = area.getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      const ox = w.left + wrap.clientLeft;
+      const oy = w.top + wrap.clientTop;
+      const shown = r.bottom > a.top && r.top < a.bottom;
+      sizeBar.hidden = handle.hidden = !shown;
+      if (!shown) return;
+      const cur = parseInt(sel.getAttribute("width"), 10) || 0;
+      for (const b of sizeBar.querySelectorAll("[data-size]")) {
+        const px = +b.dataset.size;
+        const want = px ? Math.min(px, sel.naturalWidth || px) : 0;
+        b.classList.toggle("active", want === cur);
+      }
+      const th = sizeBar.offsetHeight;
+      let top = r.top - oy - th - 6;
+      if (top < a.top - oy) top = r.bottom + 6 + th <= a.bottom ? r.bottom - oy + 6 : Math.max(r.top, a.top) - oy + 6;
+      sizeBar.style.top = top + "px";
+      sizeBar.style.left = Math.max(4, Math.min(r.left - ox, wrap.clientWidth - sizeBar.offsetWidth - 4)) + "px";
+      const inside = r.bottom <= a.bottom && r.right <= a.right;
+      handle.hidden = !inside;
+      handle.style.left = r.right - ox - 9 + "px";
+      handle.style.top = r.bottom - oy - 9 + "px";
+    }
+
+    function select(img) {
+      if (sel === img) return place();
+      deselect();
+      sel = img;
+      img.classList.add("sel");
+      resizeObs = new ResizeObserver(place);
+      resizeObs.observe(img);
+      place();
+    }
+
+    function deselect() {
+      if (resizeObs) resizeObs.disconnect();
+      resizeObs = null;
+      if (sel) {
+        sel.classList.remove("sel");
+        if (!sel.getAttribute("class")) sel.removeAttribute("class");
+      }
+      sel = null;
+      sizeBar.hidden = handle.hidden = true;
+    }
+
+    let drag = null;
+    handle.addEventListener("pointerdown", (e) => {
+      if (!sel) return;
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      drag = { x: e.clientX, w: sel.getBoundingClientRect().width };
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (!drag || !sel) return;
+      setWidth(sel, Math.max(MIN_W, Math.min(drag.w + e.clientX - drag.x, maxWidth(sel))));
+    });
+    for (const ev of ["pointerup", "pointercancel"]) handle.addEventListener(ev, () => (drag = null));
+
+    area.addEventListener("click", (e) => {
+      if (e.target instanceof HTMLImageElement) select(e.target);
+      else deselect();
+    });
+    area.addEventListener("keydown", (e) => {
+      if (!sel) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        removeSelected();
+      } else if (e.key === "Escape" || e.key === "Enter" || (e.key.length === 1 && !e.ctrlKey && !e.metaKey)) deselect();
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (sel && e.target !== sel && !sizeBar.contains(e.target) && e.target !== handle) deselect();
+    });
+    area.addEventListener("load", place, true); // images finishing to load shift the layout
+    area.addEventListener("scroll", place);
+    window.addEventListener("resize", place);
+    new MutationObserver(() => sel && !area.contains(sel) && deselect()).observe(area, { childList: true, subtree: true });
+
     picker.addEventListener("change", () => {
       insertImage(picker.files[0]);
       picker.value = "";
@@ -240,18 +409,20 @@
     });
 
     form.addEventListener("submit", () => {
+      deselect(); // drops the selection class before the markup is read
       html.value = area.innerHTML;
       ta.value = area.innerText;
     });
     document.execCommand("defaultParagraphSeparator", false, "p");
+    document.execCommand("enableObjectResizing", false, false); // Firefox's own handles would fight ours
     ta.hidden = true;
     ta.required = false;
-    wrap.append(bar, area);
+    wrap.append(bar, area, sizeBar, handle);
     ta.after(wrap, html, picker);
   }
 })();
 
-// Bulk selection: select-all, count, enable buttons, highlight picked rows.
+// Bulk selection: select-all, count, swap idle/selection actions, highlight picked rows.
 (() => {
   const bar = document.querySelector("[data-bulk]");
   if (!bar) return;
@@ -263,8 +434,9 @@
     bar.hidden = list.length === 0;
     const n = list.filter((c) => c.checked).length;
     for (const c of list) c.closest(".mail-row, tr")?.classList.toggle("picked", c.checked);
-    for (const b of bar.querySelectorAll("button")) b.disabled = n === 0;
-    count.textContent = n ? `${n} selected` : "Select";
+    for (const g of bar.querySelectorAll("[data-bulk-actions]")) g.hidden = n === 0;
+    for (const g of bar.querySelectorAll("[data-bulk-idle]")) g.hidden = n > 0;
+    count.textContent = n ? `${n} selected` : `${list.length} message${list.length === 1 ? "" : "s"}`;
     all.checked = n > 0 && n === list.length;
     all.indeterminate = n > 0 && n < list.length;
   }
@@ -278,6 +450,31 @@
   document.addEventListener("bulk-change", update);
   update();
 })();
+
+// Selects that submit their form on change (data-autosubmit). data-confirm-change="question"
+// asks first and puts the previous value back when declined.
+(() => {
+  for (const sel of document.querySelectorAll("select[data-autosubmit]")) {
+    let prev = sel.value;
+    sel.addEventListener("change", () => {
+      if (sel.dataset.confirmChange && !confirm(sel.dataset.confirmChange)) {
+        sel.value = prev;
+        return;
+      }
+      prev = sel.value;
+      sel.form.submit();
+    });
+  }
+})();
+
+// Ctrl/Cmd+Enter sends a reply, compose or forward form (data-send).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || e.repeat) return;
+  const f = e.target.closest?.("form[data-send]");
+  if (!f) return;
+  e.preventDefault();
+  f.requestSubmit();
+});
 
 // Confirm destructive buttons (data-confirm="question").
 document.addEventListener("click", (e) => {

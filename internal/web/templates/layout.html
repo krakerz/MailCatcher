@@ -22,7 +22,6 @@
       <a href="/inbox/{{.ID}}"{{if eq $path (printf "/inbox/%d" .ID)}} class="active"{{end}}>{{icon "inbox"}} {{.Name}}{{with index $.NavUnread .ID}}<span class="count">{{.}}</span>{{end}}</a>
       {{end}}
       <div class="nav-label">Mail</div>
-      <a href="/sent"{{if eq .Path "/sent"}} class="active"{{end}}>{{icon "send"}} Sent</a>
       <a href="/rules"{{if hasPrefix .Path "/rules"}} class="active"{{end}}>{{icon "split"}} Forward rules</a>
       <a href="/destinations"{{if eq .Path "/destinations"}} class="active"{{end}}>{{icon "mail-check"}} Destinations</a>
       {{if .User.IsAdmin}}

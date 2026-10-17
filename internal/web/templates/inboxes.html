@@ -2,9 +2,10 @@
 {{$csrf := .CSRF}}{{$d := .Data}}
 <div class="page-head">
   <h1>Inboxes</h1>
+  <span class="spacer"></span>
   <form method="post" action="/admin/inboxes/reroute" class="inline">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button class="small" title="Route all stored mail again with the current settings">Re-apply routing</button>
+    <button class="secondary" title="Route all stored mail again with the current settings">Re-apply routing</button>
   </form>
 </div>
 {{with $d.Notice}}<p class="notice">{{icon "circle-check"}}<span>{{.}}</span></p>{{end}}
@@ -18,12 +19,12 @@
 </div>
 {{end}}
 
+<div class="table-wrap">
 <table class="list">
-  <thead><tr><th>ID</th><th>Name</th><th>Receives on</th><th>Addresses / format</th><th>Priority</th><th>API key</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Receives on</th><th>Addresses / format</th><th>Priority</th><th>API key</th><th></th></tr></thead>
   <tbody>
   {{range $d.Inboxes}}
   <tr>
-    <td>{{.ID}}</td>
     <td><a href="/inbox/{{.ID}}">{{.Name}}</a>{{if .IsDefault}} <span class="badge">default</span>{{end}}<br><span class="muted mono">{{.Slug}}</span></td>
     <td class="mono">{{if .Domain}}{{.Domain}}{{else}}{{$d.Domain}}{{end}}</td>
     <td class="mono">{{if .Addresses}}{{range .Addresses}}{{.}}<br>{{end}}<span class="muted">decoded with {{.FormatTemplate}}</span>
@@ -32,14 +33,15 @@
     <td>
       <form method="post" action="/admin/inboxes/{{.ID}}/apikey" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}">
-        <button class="small">{{if .HasAPIKey}}Regenerate{{else}}Generate{{end}}</button>
+        <button class="secondary small">{{if .HasAPIKey}}Regenerate{{else}}Generate{{end}}</button>
       </form>
     </td>
-    <td><a href="/admin/inboxes/{{.ID}}">Edit</a></td>
+    <td class="row-actions"><a class="button secondary small" href="/admin/inboxes/{{.ID}}">{{icon "square-pen"}} Edit</a></td>
   </tr>
   {{end}}
   </tbody>
 </table>
+</div>
 
 <form method="post" action="/admin/inboxes" class="card">
   <h2>Add inbox</h2>

@@ -87,7 +87,7 @@ The tunnel's DNS record overrides a wildcard (`*`) record if you have one. If yo
 
 ## 6. API token for destination addresses
 
-Lets the app add destination addresses and see which are verified, so testers can do it from the **Destinations** page instead of the Cloudflare dashboard.
+Lets the app add destination addresses and see which are verified, so an admin can do it from the **Destinations** page instead of the Cloudflare dashboard.
 
 1. **My Profile → API Tokens → Create Token → Custom token**, permission *Account → Email Routing Addresses → Edit*, limited to your account.
 2. Note your **Account ID** (shown on the domain's Overview page, right sidebar, or in the dashboard URL).
@@ -152,4 +152,4 @@ Data (database, raw mail, attachments) is stored in `./data`.
 | App log: `permission denied` under `/data` | `./data` is not owned by `MC_UID`/`MC_GID`: `sudo chown -R <uid>:<gid> data`. |
 | `<app hostname>` shows another site or a 404 page | The tunnel has no public hostname yet, or an older DNS record for that name takes precedence. |
 | Sender gets `552 5.3.4 Email data size exceeded` | Message over 25 MiB after encoding. |
-| Verification email for a destination never arrives | Check spam; adding the same address again re-sends it (rate-limited). |
+| Verification email for a destination never arrives | Check spam; an admin can use **Resend link** on the Destinations page (rate-limited). |
