@@ -43,9 +43,12 @@ func formFiles(r *http.Request) ([]outbound.File, error) {
 }
 
 // sendError turns a send failure into a message for the form.
-func sendError(err error, to string) string {
+func sendError(r *http.Request, err error, to string) string {
 	switch {
 	case errors.Is(err, outbound.ErrNotVerified):
+		if !current(r).User.IsAdmin() {
+			return to + " is not a verified destination address. Cloudflare (free plan) only delivers to verified addresses: ask an admin to add it under Destinations, and its owner has to click the verification link before you send again."
+		}
 		return to + " is not a verified destination address. Cloudflare (free plan) only delivers to verified addresses: its owner has to click a verification link first, then send again."
 	case errors.Is(err, outbound.ErrNotActive):
 		return to + " is verified, but Cloudflare has not activated it for sending yet. This usually takes under a minute — send again shortly."
@@ -98,7 +101,7 @@ func (s *Server) replySubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d.Error, d.Unverified = sendError(err, d.To), s.offerVerification(err, d.To)
+	d.Error, d.Unverified = sendError(r, err, d.To), s.offerVerification(r, err, d.To)
 	w.WriteHeader(http.StatusBadRequest)
 	s.render(w, r, "reply", "Reply", d)
 }
@@ -135,7 +138,7 @@ func (s *Server) forwardSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, fmt.Sprintf("/m/%d?sent=%d", m.ID, out.ID), http.StatusSeeOther)
 		return
 	}
-	d.Error, d.Unverified = sendError(err, d.To), s.offerVerification(err, d.To)
+	d.Error, d.Unverified = sendError(r, err, d.To), s.offerVerification(r, err, d.To)
 	d.Verified = s.verifiedEmails(r.Context())
 	w.WriteHeader(http.StatusBadRequest)
 	s.render(w, r, "forward", "Forward", d)
@@ -204,7 +207,7 @@ func (s *Server) composeSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d.Err, d.Unverified = sendError(err, d.To), s.offerVerification(err, d.To)
+	d.Err, d.Unverified = sendError(r, err, d.To), s.offerVerification(r, err, d.To)
 	s.renderCompose(w, r, d)
 }
 
@@ -232,16 +235,17 @@ func (s *Server) composeFrom(w http.ResponseWriter, r *http.Request) {
 type sentData struct {
 	Messages []*store.Message
 	Users    map[int64]string
-	Inboxes  []*store.Inbox
-	Names    map[int64]string // inbox id → name
-	InboxID  int64            // filter, 0 = all
+	Inbox    *store.Inbox // nil only when the user can see no inbox
+	InboxID  int64
 	Before   int64
 	Older    int64
 }
 
+// sentPage lists the mail sent from one inbox; without ?inbox= it goes to the
+// first inbox the user can see.
 func (s *Server) sentPage(w http.ResponseWriter, r *http.Request) {
 	c := current(r)
-	d := sentData{Users: map[int64]string{}, Names: map[int64]string{}}
+	d := sentData{Users: map[int64]string{}}
 	d.Before, _ = strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	d.InboxID, _ = strconv.ParseInt(r.URL.Query().Get("inbox"), 10, 64)
 	all, err := s.Store.ListInboxes(r.Context())
@@ -249,13 +253,27 @@ func (s *Server) sentPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	d.Inboxes = c.visible(all)
-	for _, in := range all {
-		d.Names[in.ID] = in.Name
+	visible := c.visible(all)
+	if d.InboxID == 0 && len(visible) > 0 {
+		to := fmt.Sprintf("/sent?inbox=%d", visible[0].ID)
+		if d.Before != 0 {
+			to += fmt.Sprintf("&before=%d", d.Before)
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return
 	}
 	f := store.Filter{Direction: "out", InboxIDs: c.Allowed, BeforeID: d.Before, Limit: pageSize + 1}
 	if d.InboxID != 0 {
 		if !c.canSee(d.InboxID) {
+			http.NotFound(w, r)
+			return
+		}
+		for _, in := range all {
+			if in.ID == d.InboxID {
+				d.Inbox = in
+			}
+		}
+		if d.Inbox == nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -283,9 +301,9 @@ func (s *Server) sentPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // offerVerification returns the recipient to show a "send verification link"
-// button for, when that is possible.
-func (s *Server) offerVerification(err error, to string) string {
-	if errors.Is(err, outbound.ErrNotVerified) && s.Dest.Enabled() {
+// button for, when that is possible. Only admins may add destination addresses.
+func (s *Server) offerVerification(r *http.Request, err error, to string) string {
+	if errors.Is(err, outbound.ErrNotVerified) && s.Dest.Enabled() && current(r).User.IsAdmin() {
 		return to
 	}
 	return ""

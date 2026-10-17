@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strconv"
 	"strings"
 
 	nethtml "golang.org/x/net/html"
@@ -118,7 +119,7 @@ func (rb *RichBody) attrs(n *nethtml.Node, cidDomain string) (string, bool, erro
 		return "", true, nil
 	case atom.Img:
 		src := get("src")
-		alt := ` alt="` + html.EscapeString(get("alt")) + `"`
+		alt := ` alt="` + html.EscapeString(get("alt")) + `"` + imgSize(get("width"))
 		if m := dataImageRe.FindStringSubmatch(src); m != nil {
 			data, err := base64.StdEncoding.DecodeString(m[2])
 			if err != nil {
@@ -128,14 +129,23 @@ func (rb *RichBody) attrs(n *nethtml.Node, cidDomain string) (string, bool, erro
 			ext := strings.TrimPrefix(m[1], "image/")
 			cid := fmt.Sprintf("image%d.%s@%s", i, randHex(), cidDomain)
 			rb.Inline = append(rb.Inline, Inline{File: File{Name: fmt.Sprintf("image%d.%s", i, ext), ContentType: m[1], Data: data}, ContentID: cid})
-			return ` src="cid:` + cid + `"` + alt + ` style="max-width:100%"`, true, nil
+			return ` src="cid:` + cid + `"` + alt + ` style="max-width:100%;height:auto"`, true, nil
 		}
 		if l := strings.ToLower(src); strings.HasPrefix(l, "https://") || strings.HasPrefix(l, "http://") {
-			return ` src="` + html.EscapeString(src) + `"` + alt + ` style="max-width:100%"`, true, nil
+			return ` src="` + html.EscapeString(src) + `"` + alt + ` style="max-width:100%;height:auto"`, true, nil
 		}
 		return "", false, nil
 	}
 	return "", true, nil
+}
+
+// imgSize renders the editor's chosen display width (1..4000 px, digits only);
+// anything else is dropped. No height is set so the aspect ratio is kept.
+func imgSize(w string) string {
+	if n, err := strconv.Atoi(w); err == nil && n >= 1 && n <= 4000 && w == strconv.Itoa(n) {
+		return fmt.Sprintf(` width="%d"`, n)
+	}
+	return ""
 }
 
 var blockTags = map[atom.Atom]bool{atom.P: true, atom.Div: true, atom.Li: true, atom.Blockquote: true, atom.H1: true, atom.H2: true, atom.H3: true, atom.Pre: true, atom.Ul: true, atom.Ol: true, atom.Hr: true}

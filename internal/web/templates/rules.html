@@ -2,32 +2,39 @@
 {{$csrf := .CSRF}}{{$d := .Data}}
 <div class="page-head">
   <h1>Forward rules</h1>
-  <form method="post" action="/rules/push" class="inline">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button class="small secondary">{{icon "refresh-cw"}} Push to Worker</button>
-  </form>
+  <span class="spacer"></span>
   <span class="muted">
     {{if $d.PushErr}}<span class="warn">Last push failed: {{$d.PushErr}}</span>
     {{else if not $d.PushedAt.IsZero}}Worker has {{$d.PushedN}} active rule(s), pushed {{when $d.PushedAt}}.
     {{else}}Not pushed yet.{{end}}
   </span>
+  <form method="post" action="/rules/push" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button class="secondary">{{icon "refresh-cw"}} Push to Worker</button>
+  </form>
 </div>
+<p class="muted">A rule matches mail to its <b>real recipient</b> in its inbox — or, for “any inbox”, in every inbox, each with its own address format (e.g. <code>any@example.com</code> matches <code>team1.any~example.com@{{$d.Domain}}</code> in a <code>{inbox}.{local}~{domain}</code> inbox). Overlapping rules forward once per destination. A catch-all pattern on your domain (<code>team1.*@{{$d.Domain}}</code>) also works.</p>
 <p class="muted">Incoming mail that matches a rule is forwarded by the Worker as it arrives — also while the app is offline. Replies from the destination go straight to the original sender. Destinations must be verified addresses.</p>
 {{with $d.Notice}}<p class="notice">{{icon "circle-check"}}<span>{{.}}</span></p>{{end}}
 {{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 
+<div class="table-wrap">
 <table class="list">
-  <thead><tr><th>Inbox</th><th>Address</th><th>Forward to</th><th>Status</th><th></th></tr></thead>
+  <thead><tr><th>Inbox</th><th>Recipient</th><th>Forward to</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {{range $d.Rules}}
   <tr{{if not .Enabled}} class="muted"{{end}}>
     <td>{{if .InboxID}}{{.InboxName}}{{else}}<span class="muted">any</span>{{end}}</td>
-    <td class="mono">{{if .AddressGlob}}{{.AddressGlob}}{{else}}<span class="muted">any</span>{{end}}</td>
+    <td><span class="mono">{{if .AddressGlob}}{{.AddressGlob}}{{else}}any{{end}}</span>
+      {{if .AddressGlob}}<br><span class="muted">{{if .Pattern}}catch-all pattern{{else}}real recipient{{end}}</span>{{end}}
+      {{if not .Reach}}<br><span class="warn">{{icon "triangle-alert"}} never fires: no inbox can receive this address</span>
+      {{else if not .InboxID}}<br><span class="muted">in {{range $i, $n := .Reach}}{{if $i}}, {{end}}{{$n}}{{end}}</span>{{end}}
+    </td>
     <td class="mono">{{.Destination}}
       {{if not .Known}}<br><span class="warn">not a destination address</span>{{else if not .Verified}}<br><span class="warn">not verified yet</span>{{end}}
     </td>
     <td>{{if .Enabled}}<span class="ok">active</span>{{else}}off{{end}}</td>
-    <td class="nowrap">
+    <td class="row-actions">
       <form method="post" action="/rules/{{.ID}}" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         {{if .Enabled}}<button class="small secondary" name="action" value="disable">Turn off</button>
@@ -41,6 +48,7 @@
   {{end}}
   </tbody>
 </table>
+</div>
 
 <form method="post" action="/rules" class="card">
   <h2>Add rule</h2>
@@ -52,8 +60,8 @@
         {{range $d.Inboxes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
       </select>
     </label>
-    <label class="grow">Address <span class="muted">(catch-all address, * wildcard, empty = any)</span>
-      <input name="glob" class="mono" placeholder="*.example@{{$d.Domain}}">
+    <label class="grow">Recipient <span class="muted">(real address, e.g. any@example.com; * allowed before the @; empty = any)</span>
+      <input name="glob" class="mono" placeholder="any@example.com">
     </label>
     <label class="grow">Forward to {{template "dest_field" (dict "Name" "destination" "Value" "" "List" $d.Verified)}}</label>
     <button>Add</button>
@@ -67,6 +75,7 @@
     <button class="secondary">Test</button>
   </div>
   {{if $d.Tested}}
+  {{with $d.TestWarn}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
   <p>Routes to inbox <b>{{$d.TestInbox}}</b>.
   {{if $d.TestResult}}Forwarded to: {{range $i, $x := $d.TestResult}}{{if $i}}, {{end}}<span class="mono">{{$x}}</span>{{end}}.
   {{else}}No rule matches — not forwarded.{{end}}</p>

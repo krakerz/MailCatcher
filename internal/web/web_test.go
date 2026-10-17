@@ -10,10 +10,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"mailcatcher/internal/auth"
+	"mailcatcher/internal/cloudflare"
+	"mailcatcher/internal/destinations"
 	"mailcatcher/internal/events"
+	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/store"
 )
 
@@ -24,6 +28,12 @@ type client struct {
 }
 
 func setup(t *testing.T) (*client, *store.Store) {
+	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with a hook to configure the Server before it is served.
+func setupWith(t *testing.T, configure func(*Server)) (*client, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -36,6 +46,9 @@ func setup(t *testing.T) (*client, *store.Store) {
 	s, err := New(st, events.NewBroker(), "example.test", false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if configure != nil {
+		configure(s)
 	}
 	mux := http.NewServeMux()
 	s.Register(mux)
@@ -398,8 +411,8 @@ func TestUnreadAndSentFilter(t *testing.T) {
 	if !strings.Contains(body, "from-other") || strings.Contains(body, "from-default") {
 		t.Fatal("sent not filtered by inbox")
 	}
-	if _, _, body := c.do("GET", "/sent", nil); !strings.Contains(body, "from-other") || !strings.Contains(body, "from-default") {
-		t.Fatal("all-inboxes sent view incomplete")
+	if code, loc, _ := c.do("GET", "/sent", nil); code != http.StatusSeeOther || loc != "/sent?inbox=1" {
+		t.Fatalf("bare /sent: got %d %q, want redirect to the first inbox", code, loc)
 	}
 }
 
@@ -428,5 +441,69 @@ func TestBulkActions(t *testing.T) {
 	}
 	if _, _, body := c.do("GET", "/inbox/1", nil); strings.Count(body, `class="mail-row unread"`) != 1 {
 		t.Fatal("bulk unread lost")
+	}
+}
+
+func TestDestinationsAdminOnly(t *testing.T) {
+	var cfCalls atomic.Int32
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfCalls.Add(1)
+		http.Error(w, "unexpected Cloudflare call", http.StatusInternalServerError)
+	}))
+	t.Cleanup(cf.Close)
+
+	c, st := setupWith(t, func(s *Server) {
+		s.Dest = &destinations.Service{Store: s.Store, CF: &cloudflare.Client{Token: "t", AccountID: "a", BaseURL: cf.URL}}
+		s.Mailer = &outbound.Mailer{Store: s.Store, Domain: "example.test",
+			Verified: func(context.Context, string) (bool, error) { return false, nil }}
+	})
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("user-password")
+	if err := st.CreateUser(ctx, &store.User{Username: "plain", PasswordHash: hash, Role: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	c.login("admin", "admin-pass")
+	uc := newClient(t, c.base)
+	uc.login("plain", "user-password")
+
+	// A non-admin cannot add or re-send, with or without the fetch header, and never reaches Cloudflare.
+	tok := uc.csrf("/destinations")
+	if code, _, _ := uc.do("POST", "/destinations", url.Values{"csrf": {tok}, "email": {"new@gmail.com"}}); code != http.StatusForbidden {
+		t.Errorf("non-admin POST /destinations: %d, want 403", code)
+	}
+	req, _ := http.NewRequest("POST", uc.base+"/destinations", strings.NewReader(url.Values{"csrf": {tok}, "email": {"new@gmail.com"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Requested-With", "fetch")
+	res, err := uc.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("non-admin fetch POST /destinations: %d, want 403", res.StatusCode)
+	}
+	if n := cfCalls.Load(); n != 0 {
+		t.Errorf("destination service called %d times for a non-admin", n)
+	}
+
+	// The page hides the add form for non-admins and shows it to admins.
+	if _, _, body := uc.do("GET", "/destinations", nil); strings.Contains(body, "Add address") || !strings.Contains(body, "Only admins can add") {
+		t.Error("non-admin destinations page offers adding")
+	}
+	if _, _, body := c.do("GET", "/destinations", nil); !strings.Contains(body, "Add address") {
+		t.Error("admin destinations page has no add form")
+	}
+
+	// A send to an unverified address offers the verification button to admins only.
+	form := func(cl *client) url.Values {
+		return url.Values{"csrf": {cl.csrf("/compose")}, "inbox": {"1"}, "identity": {"b@gmail.com"}, "to": {"x@gmail.com"}}
+	}
+	_, _, body := uc.do("POST", "/compose", form(uc))
+	if !strings.Contains(body, "ask an admin") || strings.Contains(body, "Send verification link to") {
+		t.Error("non-admin unverified send: wrong message or button offered")
+	}
+	_, _, body = c.do("POST", "/compose", form(c))
+	if !strings.Contains(body, "Send verification link to x@gmail.com") {
+		t.Error("admin unverified send: no verification button")
 	}
 }

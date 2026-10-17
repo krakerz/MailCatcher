@@ -8,16 +8,16 @@ mailcatcher receives every email sent to any address on your domain through Clou
 
 ## Features
 
-*Work in progress — not all listed features exist yet:*
-
 - Catch-all inbox for a whole domain
 - Virtual inboxes by address list or address format (e.g. `b.gmail`, `b=gmail.com`); the real recipient is decoded and shown
 - Web UI with login, light/dark theme and user management, including per-user inbox access
 - Reply, compose and forward to verified addresses
-- Destination-address management (Cloudflare API) from the UI, with a verified check before sending
+- Destination-address list (Cloudflare API) in the UI; admins add and remove addresses, and sending is checked against verified ones first
 - Auto-forward rules, applied by the Worker as mail arrives (also while the app is offline)
 - Test API with long-polling wait-for-message
 - Nothing is lost while the app is offline: the Worker keeps mail in Workers KV and the app collects it when it is back
+- Per-user read state: unread mail is highlighted and counted; select messages to mark them read or unread, or delete them
+- Rich editor for reply and compose, with resizable inline images; Ctrl+Enter (Cmd+Enter on Mac) sends
 
 ## Installation
 
@@ -52,18 +52,19 @@ npx wrangler deploy
 
 ## Usage
 
-Open `https://<app hostname>` and log in. The inbox updates live as mail arrives (**Refresh** also collects anything still waiting at Cloudflare); unread mail is bold and counted in the sidebar, per user, with **Mark unread** and **Mark all read** for shared inboxes; tick messages to mark them read/unread or delete them; open a message to see its HTML (sandboxed, remote images blocked until you allow them), plain text, headers, links, verification codes and attachments.
+Open `https://<app hostname>` and log in. The inbox updates live as mail arrives (**Refresh** also collects anything still waiting at Cloudflare); unread mail is bold and counted in the sidebar, per user; tick messages to mark them read or unread or delete them, and with nothing ticked the toolbar offers **Mark all read**; open a message to see its HTML (sandboxed, remote images blocked until you allow them), plain text, headers, links, verification codes and attachments.
 
 **Sending** (free plan: only to [verified destination addresses](docs/SETUP.md#2-enable-email-routing)):
 
 - **Reply** — from the catch-all address the mail was sent to (e.g. `b.gmail@<domain>`) to the original sender (its `Reply-To` if set), threaded and optionally quoting the original.
 - **Forward** — to a verified address with the original attached as `.eml`; replies go to the original sender, or back into mailcatcher if you choose.
 - **Compose** — pick an inbox and the real address to send as (`b@gmail.com`); it is sent from the matching catch-all address.
-- Reply and compose have a basic rich editor (bold, italic, lists, quote, links, inline images — paste or pick them) and send HTML with a plain-text version; several attachments per mail, 18 MB in total.
-- **Sent** lists everything sent, by whom and from which inbox (filter per inbox, or the Sent tab of an inbox); a message shows the replies and forwards sent from it.
-- **Destinations** lists the verified addresses and lets anyone request verification for a new one (Cloudflare emails its owner a link); admins can remove addresses. A send to an unverified address offers that request right away, and the To fields suggest verified addresses.
+- Reply and compose have a basic rich editor (bold, italic, lists, quote, links, inline images — paste or pick them) and send HTML with a plain-text version; several attachments per mail, 18 MB in total. Click an inline image to resize it (Small / Medium / Large / Original) or drag its corner; large PNG, JPEG and WebP images are scaled down before sending.
+- Ctrl+Enter (Cmd+Enter on Mac) sends the reply, compose or forward form.
+- **Sent** is per inbox: each inbox has a Sent tab next to Received, listing the mail sent from it and who sent each one; a message shows the replies and forwards sent from it.
+- **Destinations** lists the verified addresses; anyone can refresh the list from Cloudflare. Only admins add addresses (Cloudflare emails the owner a verification link) or remove them. A send to an unverified address is refused: an admin is offered a one-click verification request, other users are told to ask an admin. The To fields suggest verified addresses.
 
-**Forward rules**: forward incoming mail automatically to verified addresses, by inbox and/or catch-all address pattern (`*` wildcard). The Worker applies them as mail arrives, even when the app is offline; replies from the destination go straight to the original sender. The page has a box to test which rules an address hits, and messages show where they were auto-forwarded. Users manage the rules of the inboxes they can open; rules for "any inbox" need unrestricted access.
+**Forward rules**: forward incoming mail automatically to verified addresses. A rule names an inbox (or any inbox) and a **real recipient** such as `any@example.com` (`*` allowed before the `@`): it matches the catch-all address that recipient is encoded to in that inbox — for "any inbox", in every inbox with its own format. Overlapping rules forward once per destination; different destinations each get a copy. A catch-all pattern on your own domain (`team1.*@<domain>`) works too. The Worker applies them as mail arrives, even when the app is offline; replies from the destination go straight to the original sender. The page has a **Test an address** box that shows which rules an address hits and warns about malformed addresses or domains that are not yours; messages show where they were auto-forwarded. Users manage the rules of the inboxes they can open; rules for "any inbox" need unrestricted access.
 
 **Users** (admins only): add users, reset passwords, disable accounts, change roles, and limit a user to some inboxes (none ticked = all). *Users* read, reply, compose and forward in the inboxes they can open; *admins* see everything and manage users, inboxes and rules.
 

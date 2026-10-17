@@ -4,7 +4,7 @@
 <h1>Forward</h1>
 {{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{template "unverified" $d.Unverified}}
-<form method="post" action="/m/{{$m.ID}}/forward" class="card">
+<form method="post" action="/m/{{$m.ID}}/forward" class="card" data-send>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <table class="meta">
     <tr><th>From</th><td class="mono">{{$m.EnvelopeTo}}</td></tr>
@@ -18,7 +18,7 @@
     <label class="check"><input type="radio" name="reply_back" value="1"{{if $d.ReplyBack}} checked{{end}}> back into MailCatcher <span class="mono muted">{{$m.EnvelopeTo}}</span></label>
   </fieldset>
   <p class="muted">The original is attached as <code>original.eml</code>.</p>
-  <button>Forward</button>
+  <button title="Ctrl+Enter">Forward</button>
 </form>
 {{template "original" $m}}
 {{end}}

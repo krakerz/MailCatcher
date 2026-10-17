@@ -12,8 +12,9 @@
 <p class="muted">On the free plan MailCatcher can only send to verified destination addresses. Adding an address makes Cloudflare email a verification link <b>to that address</b>; its owner has to click it. The list syncs every 5 minutes.</p>
 {{with $d.Notice}}<p class="notice">{{icon "circle-check"}}<span>{{.}}</span></p>{{end}}
 {{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
-{{if not $d.Enabled}}<p class="error">Managing addresses from here needs <code>MC_CF_API_TOKEN</code> and <code>MC_CF_ACCOUNT_ID</code>. Until then, add them in the Cloudflare dashboard (Email Routing → Destination addresses).</p>{{end}}
+{{if not $d.Enabled}}<p class="error">{{icon "circle-alert"}}<span>Managing addresses from here needs <code>MC_CF_API_TOKEN</code> and <code>MC_CF_ACCOUNT_ID</code>. Until then, add them in the Cloudflare dashboard (Email Routing → Destination addresses).</span></p>{{end}}
 
+<div class="table-wrap">
 <table class="list">
   <thead><tr><th>Address</th><th>Status</th><th>Added</th><th></th></tr></thead>
   <tbody>
@@ -22,20 +23,18 @@
     <td class="mono">{{.Email}}</td>
     <td>{{if .Verified}}<span class="ok">verified</span>{{else}}<span class="warn">waiting for the owner to click the link</span>{{end}}</td>
     <td class="nowrap">{{when .CreatedAt}}</td>
-    <td class="nowrap">
-      {{if $d.Enabled}}
+    <td class="row-actions">
+      {{if and $d.Enabled $admin}}
       {{if not .Verified}}
       <form method="post" action="/destinations" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="email" value="{{.Email}}">
         <button class="small secondary">Resend link</button>
       </form>
       {{end}}
-      {{if $admin}}
       <form method="post" action="/destinations/remove" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="email" value="{{.Email}}">
         <button class="small danger">Remove</button>
       </form>
-      {{end}}
       {{end}}
     </td>
   </tr>
@@ -44,8 +43,9 @@
   {{end}}
   </tbody>
 </table>
+</div>
 
-{{if $d.Enabled}}
+{{if and $d.Enabled $admin}}
 <form method="post" action="/destinations" class="card">
   <h2>Add address</h2>
   <input type="hidden" name="csrf" value="{{$csrf}}">
@@ -54,5 +54,7 @@
     <button>Send verification link</button>
   </div>
 </form>
+{{else if $d.Enabled}}
+<p class="muted">Only admins can add destination addresses. Ask an admin to add the address you need.</p>
 {{end}}
 {{end}}

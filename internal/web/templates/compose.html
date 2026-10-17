@@ -3,7 +3,7 @@
 <h1>Compose</h1>
 {{with $d.Err}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 {{template "unverified" $d.Unverified}}
-<form method="post" action="/compose" enctype="multipart/form-data" class="card" data-compose>
+<form method="post" action="/compose" enctype="multipart/form-data" class="card" data-compose data-send>
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <div class="row">
     <label>Inbox
@@ -20,6 +20,6 @@
   <label>Subject <input name="subject" value="{{$d.Subject}}"></label>
   <div class="field"><span class="field-label">Message</span><textarea name="text" rows="10" data-rich data-html="{{$d.HTML}}" aria-label="Message">{{$d.Text}}</textarea></div>
   <label>Attachments <input type="file" name="files" multiple></label>
-  <button>Send</button>
+  <button title="Ctrl+Enter">Send</button>
 </form>
 {{end}}

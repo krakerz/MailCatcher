@@ -4,8 +4,9 @@
 {{with $d.Notice}}<p class="notice mono">{{icon "circle-check"}}<span>{{.}}</span></p>{{end}}
 {{with $d.Error}}<p class="error">{{icon "circle-alert"}}<span>{{.}}</span></p>{{end}}
 
+<div class="table-wrap">
 <table class="list">
-  <thead><tr><th>User</th><th>Role</th><th>Inbox access</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+  <thead><tr><th>User</th><th>Role</th><th>Inbox access</th><th>Status</th><th class="nowrap">Last login</th><th></th></tr></thead>
   <tbody>
   {{range $d.Users}}
   {{$access := index $d.Access .ID}}
@@ -19,11 +20,11 @@
     <td>
       <form method="post" action="/admin/users/{{.ID}}" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="action" value="role">
-        <select name="role">
+        <select name="role" data-autosubmit{{if .IsAdmin}} data-confirm-change="Demote {{.Username}} to user?"{{end}}>
           <option value="user"{{if eq .Role "user"}} selected{{end}}>User</option>
           <option value="admin"{{if eq .Role "admin"}} selected{{end}}>Admin</option>
         </select>
-        <button class="small secondary">Set</button>
+        <noscript><button class="small secondary">Set</button></noscript>
       </form>
     </td>
     <td>
@@ -44,7 +45,7 @@
     </td>
     <td>{{if .Disabled}}disabled{{else if .MustChangePassword}}<span class="warn">password change pending</span>{{else}}<span class="ok">active</span>{{end}}</td>
     <td class="nowrap">{{when .LastLoginAt}}</td>
-    <td class="nowrap">
+    <td class="row-actions">
       <form method="post" action="/admin/users/{{.ID}}" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <button class="small secondary" name="action" value="reset">{{icon "key-round"}} Reset password</button>
@@ -56,6 +57,7 @@
   {{end}}
   </tbody>
 </table>
+</div>
 
 <form method="post" action="/admin/users" class="card">
   <h2>Add user</h2>

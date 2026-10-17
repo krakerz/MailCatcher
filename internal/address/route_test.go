@@ -71,3 +71,25 @@ func TestRouteAddressLists(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnDomain(t *testing.T) {
+	inboxes := []*store.Inbox{
+		{ID: 1, Slug: "default", IsDefault: true},
+		{ID: 2, Slug: "other", Domain: "Other.test"},
+		{ID: 3, Slug: "list", Addresses: []string{"b.gmail@*.list.test"}},
+	}
+	cases := map[string]bool{
+		"example.com":  true,
+		"EXAMPLE.com":  true,
+		"other.test":   true,
+		"a.list.test":  true,
+		"list.test":    false,
+		"example.org":  false,
+		"example.co.m": false, // typo of the main domain
+	}
+	for domain, want := range cases {
+		if got := OwnDomain(inboxes, "example.com", domain); got != want {
+			t.Errorf("OwnDomain(%q) = %v, want %v", domain, got, want)
+		}
+	}
+}

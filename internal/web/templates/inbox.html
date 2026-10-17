@@ -1,27 +1,25 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="page-head">
+<div class="page-head stack">
   <h1>{{$d.Inbox.Name}}</h1>
   <nav class="tabs"><a class="active" href="/inbox/{{$d.Inbox.ID}}">{{icon "inbox"}} Received</a><a href="/sent?inbox={{$d.Inbox.ID}}">{{icon "send"}} Sent</a></nav>
   <span class="spacer"></span>
-  <form method="post" action="/refresh" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="/inbox/{{$d.Inbox.ID}}">
-    <button class="secondary" title="Collect mail still waiting at Cloudflare">{{icon "refresh-cw"}} Refresh</button>
-  </form>
-  <form method="post" action="/inbox/{{$d.Inbox.ID}}/read" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button class="secondary" title="Mark everything here as read">{{icon "mail-open"}} Mark all read</button>
-  </form>
   <form method="get" class="search">
     {{icon "search"}}
     <input name="q" value="{{$d.Q}}" placeholder="Search to, from or subject" type="search" aria-label="Search">
     {{if $d.Q}}<a class="button secondary" href="/inbox/{{$d.Inbox.ID}}">{{icon "x"}} Clear</a>{{end}}
   </form>
+  <form method="post" action="/refresh" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="/inbox/{{$d.Inbox.ID}}">
+    <button class="secondary icon-btn" title="Collect mail still waiting at Cloudflare" aria-label="Refresh">{{icon "refresh-cw"}}</button>
+  </form>
 </div>
-{{template "bulkbar" (dict "CSRF" .CSRF "Back" (printf "/inbox/%d" $d.Inbox.ID) "Read" true)}}
 {{with $d.Fetched}}<p class="notice">{{icon "circle-check"}}<span>Refreshed{{if ne . "0"}} — collected {{.}} message(s) that were waiting at Cloudflare{{end}}.</span></p>{{end}}
+<div class="list-card">
+{{template "bulkbar" (dict "CSRF" .CSRF "Back" (printf "/inbox/%d" $d.Inbox.ID) "Read" true "AllRead" (printf "/inbox/%d/read" $d.Inbox.ID))}}
 <div class="mail-list" id="messages" data-inbox="{{$d.Inbox.ID}}" data-live="{{if $d.Before}}0{{else}}1{{end}}" data-q="{{$d.Q}}" data-rows>
 {{template "rows" $d}}
+</div>
 </div>
 <p class="paging">
   {{if $d.Before}}<a href="/inbox/{{$d.Inbox.ID}}{{with $d.Q}}?q={{.}}{{end}}">{{icon "chevron-left"}} Newest</a>{{end}}
