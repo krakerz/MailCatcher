@@ -75,7 +75,7 @@ On the first deploy wrangler may ask to register a `workers.dev` subdomain — s
 
 **Email → Email Routing → Routing rules → Catch-all address** → action **Send to a Worker** → `mailcatcher` → enable.
 
-From now on every mail to `*@<domain>` reaches the Worker. If the app is not reachable, mail is kept in Workers KV; the app collects it within a minute of coming back.
+From now on every mail to `*@<domain>` reaches the Worker. If the app is not reachable, mail is kept in Workers KV; the app collects it within a couple of minutes of coming back.
 
 ## 5. Create the Cloudflare Tunnel
 
