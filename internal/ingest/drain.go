@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mailcatcher/internal/outbound"
@@ -14,10 +15,32 @@ import (
 // DrainEvery is how often mail stashed in Workers KV (app was unreachable) is collected.
 const DrainEvery = time.Minute
 
+// Free-plan KV allows 1,000 lists a day, so polls go by the Worker's "mail waiting"
+// flag and a full list (catches anything the flag missed) runs only this often;
+// the inbox Refresh button may force one every refreshFullEvery.
+const (
+	FullEvery        = time.Hour
+	refreshFullEvery = 5 * time.Minute
+)
+
 // Drainer moves mail the Worker stashed in KV into the store, then deletes it from KV.
 type Drainer struct {
 	Handler *Handler
 	Worker  *outbound.Sender
+
+	mu       sync.Mutex
+	lastFull time.Time
+}
+
+// fullDue reports (and books) a full list when the last one is older than every.
+func (d *Drainer) fullDue(every time.Duration) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if time.Since(d.lastFull) < every {
+		return false
+	}
+	d.lastFull = time.Now()
+	return true
 }
 
 // stashedAt reads the arrival time from a "pending:<unix ms>:<uuid>" key.
@@ -31,12 +54,17 @@ func stashedAt(key string) time.Time {
 	return time.Now()
 }
 
-// Drain collects everything currently stashed and returns how many mails were taken.
-// A mail is deleted from KV only after it is stored (or known to be unparseable).
+// Drain is the inbox Refresh button: a flag check, or a full list if none ran lately.
 func (d *Drainer) Drain(ctx context.Context) (int, error) {
+	return d.drain(ctx, d.fullDue(refreshFullEvery))
+}
+
+// drain collects everything currently stashed and returns how many mails were taken.
+// A mail is deleted from KV only after it is stored (or known to be unparseable).
+func (d *Drainer) drain(ctx context.Context, all bool) (int, error) {
 	taken := 0
 	for {
-		list, err := d.Worker.ListPending(ctx)
+		list, err := d.Worker.ListPending(ctx, all)
 		if err != nil {
 			return taken, err
 		}
@@ -79,7 +107,7 @@ func (d *Drainer) Run(ctx context.Context) {
 	t := time.NewTicker(DrainEvery)
 	defer t.Stop()
 	for {
-		if n, err := d.Drain(ctx); err != nil && ctx.Err() == nil {
+		if n, err := d.drain(ctx, d.fullDue(FullEvery)); err != nil && ctx.Err() == nil {
 			slog.Warn("drain", "err", err)
 		} else if n > 0 {
 			slog.Info("drained mail stashed while the app was unreachable", "count", n)

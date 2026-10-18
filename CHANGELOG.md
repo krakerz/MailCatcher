@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-10-18
+
+### Fixed
+- Collecting mail kept at Cloudflare no longer exceeds the free plan's daily Workers KV limits (redeploy the Worker)
+
 ## [0.2.0] — 2026-10-17
 
 ### Changed

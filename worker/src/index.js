@@ -3,6 +3,18 @@ import { matchRules } from "./rules.js";
 
 const enc = new TextEncoder();
 
+// Free-plan KV allows 1,000 lists and 1,000 writes a day but 100,000 reads. A stash
+// sets FLAG (time of the last stash) so the app's minute poll can skip KV.list
+// when nothing waits; the flag is cleared once a list comes back empty and the
+// last stash is old enough to be visible everywhere (KV takes up to ~60 s).
+const FLAG = "pending_flag";
+const FLAG_SETTLE_MS = 3 * 60 * 1000;
+
+// putIfChanged spends a (scarce) write only when the value really changed.
+async function putIfChanged(env, key, value) {
+  if ((await env.KV.get(key)) !== value) await env.KV.put(key, value);
+}
+
 async function sign(secret, ts, body) {
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const data = new Uint8Array([...enc.encode(ts + "."), ...new Uint8Array(body)]);
@@ -49,6 +61,7 @@ export default {
     } catch (err) {
       const key = `pending:${Date.now()}:${crypto.randomUUID()}`;
       await env.KV.put(key, raw, { metadata: { from: message.from, to: message.to, forwarded: forwardTo } });
+      await env.KV.put(FLAG, String(Date.now()));
     }
     // One failing destination (e.g. no longer verified) must not stop the others.
     for (const dest of forwardTo) {
@@ -77,8 +90,12 @@ export default {
       }
     }
 
+    // ?all=1 lists even without the flag (the app's hourly safety net).
     if (req.method === "GET" && url.pathname === "/pending") {
+      const flag = Number(await env.KV.get(FLAG)) || 0;
+      if (!flag && url.searchParams.get("all") !== "1") return Response.json([]);
       const list = await env.KV.list({ prefix: "pending:", limit: 50 });
+      if (flag && !list.keys.length && Date.now() - flag > FLAG_SETTLE_MS) await env.KV.delete(FLAG);
       return Response.json(list.keys.map((k) => ({ key: k.name, ...k.metadata })));
     }
 
@@ -101,7 +118,7 @@ export default {
       if (typeof ingestUrl !== "string" || !/^https:\/\/[^/\s]+\/internal\/ingest$/.test(ingestUrl)) {
         return new Response("ingest_url must be https://<host>/internal/ingest", { status: 400 });
       }
-      await env.KV.put("ingest_url", ingestUrl);
+      await putIfChanged(env, "ingest_url", ingestUrl);
       return Response.json({ ingest_url: ingestUrl });
     }
 
@@ -111,7 +128,7 @@ export default {
         rules = JSON.parse(new TextDecoder().decode(body));
       } catch {}
       if (!Array.isArray(rules)) return new Response("rules must be a JSON array", { status: 400 });
-      await env.KV.put("rules", JSON.stringify(rules));
+      await putIfChanged(env, "rules", JSON.stringify(rules));
       return Response.json({ rules: rules.length });
     }
 

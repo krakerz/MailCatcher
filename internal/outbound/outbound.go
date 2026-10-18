@@ -125,8 +125,13 @@ type Pending struct {
 }
 
 // ListPending returns up to 50 stashed mails, oldest first (KV lists keys in order).
-func (s *Sender) ListPending(ctx context.Context) ([]Pending, error) {
-	status, body, err := s.call(ctx, http.MethodGet, "/pending", nil, nil, 1<<20)
+// Without all, the Worker answers from its "mail waiting" flag and lists KV only when set.
+func (s *Sender) ListPending(ctx context.Context, all bool) ([]Pending, error) {
+	path := "/pending"
+	if all {
+		path += "?all=1"
+	}
+	status, body, err := s.call(ctx, http.MethodGet, path, nil, nil, 1<<20)
 	if err != nil {
 		return nil, err
 	}
