@@ -1,6 +1,6 @@
 {
   "name": "mailcatcher-worker",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,6 @@
     "dev": "wrangler dev"
   },
   "devDependencies": {
-    "wrangler": "^4.151.0"
+    "wrangler": "^4.162.0"
   }
 }
