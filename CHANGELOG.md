@@ -6,6 +6,7 @@
 
 ### Added
 - API: encode real addresses to an inbox's catch-all addresses and decode them back, one or up to 1000 per call
+- Prebuilt Docker image for amd64 and arm64 on GitHub Container Registry; Compose pulls it by default
 
 ### Changed
 - The same mail sent to addresses in two inboxes is now stored in both

@@ -1,0 +1,9 @@
+# Release image from binaries cross-compiled by the workflow (no emulation needed).
+# Keep the runtime half in step with ../Dockerfile, which stays buildable without BuildKit.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+COPY dist/mailcatcher-${TARGETARCH} /mailcatcher
+VOLUME /data
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["/mailcatcher", "healthcheck"]
+ENTRYPOINT ["/mailcatcher"]

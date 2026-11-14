@@ -27,7 +27,9 @@ Short version, once Cloudflare is set up:
 
 1. Copy `.env.example` to `.env` and fill in the values.
 2. Create the data folder as the user in `MC_UID`/`MC_GID`: `mkdir data`.
-3. Run `docker compose up -d --build`.
+3. Run `docker compose pull && docker compose up -d` to use the prebuilt image (`ghcr.io/krakerz/mailcatcher`, amd64 and arm64), or add `--build` to `up` to make it from the checkout.
+
+To update: `git pull && docker compose pull && docker compose up -d`. Pin a version with `MC_IMAGE=ghcr.io/krakerz/mailcatcher:<version>` in `.env`.
 
 ## Building from source
 

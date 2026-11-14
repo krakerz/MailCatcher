@@ -1,5 +1,7 @@
 services:
   mailcatcher:
+    # Prebuilt image; set MC_IMAGE to your own, or add --build to build this checkout.
+    image: ${MC_IMAGE:-ghcr.io/krakerz/mailcatcher:latest}
     build: .
     restart: unless-stopped
     # Must own ./data on the host: create it first (mkdir data) as this user.

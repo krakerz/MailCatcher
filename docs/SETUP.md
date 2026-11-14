@@ -120,9 +120,11 @@ Create the data folder as the user that should own it (its uid/gid go into `MC_U
 
 ```sh
 mkdir -p data
-docker compose up -d --build
+docker compose pull && docker compose up -d
 docker compose logs -f mailcatcher
 ```
+
+That pulls the prebuilt image (`ghcr.io/krakerz/mailcatcher:latest`, amd64 and arm64). To make the image from the checkout instead, add `--build` to `up`. To stay on one version, set `MC_IMAGE=ghcr.io/krakerz/mailcatcher:<version>` in `.env`.
 
 `cloudflared` starts once the app reports healthy. Mail that arrived before the app was up is collected from Workers KV within a minute.
 
