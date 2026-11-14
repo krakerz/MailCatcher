@@ -69,7 +69,7 @@ func main() {
 	ingestHandler := &ingest.Handler{Store: st, Secret: cfg.HMACSecret, Domain: cfg.Domain,
 		OnStored: func(m *store.Message) { broker.Publish(events.Event{MessageID: m.ID, InboxID: m.InboxID}) }}
 	mux.Handle("POST /internal/ingest", ingestHandler)
-	(&api.API{Store: st, Broker: broker, Mailer: mailer}).Register(mux)
+	(&api.API{Store: st, Broker: broker, Mailer: mailer, Domain: cfg.Domain}).Register(mux)
 	ui.Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok " + version.Version + "\n"))

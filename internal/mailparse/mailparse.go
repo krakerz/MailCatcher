@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jhillyerd/enmime/v2"
 	"golang.org/x/net/html"
@@ -169,15 +170,29 @@ var (
 // Window after a keyword in which a code is accepted ("Your code is: 123456").
 const codeWindow = 80
 
+// Only the head of a mail is scanned for codes: they sit near the top, and
+// scanning a huge body is wasted work.
+const maxCodeScan = 256 << 10
+
+const maxCodes = 20
+
 // Codes extracts likely verification codes: 4–8 digit numbers or 6–10 char
 // uppercase alphanumerics (with at least one digit and one letter) that follow a
 // code-ish keyword closely, plus digit-only codes standing alone on a line.
 func Codes(text string) []string {
+	if len(text) > maxCodeScan {
+		text = text[:maxCodeScan]
+		// Drop a rune cut in half by the byte limit.
+		for len(text) > 0 && !utf8.RuneStart(text[len(text)-1]) {
+			text = text[:len(text)-1]
+		}
+	}
 	// Blank out URLs (keeping offsets) so query-string numbers are not taken as codes.
 	text = textURLRe.ReplaceAllStringFunc(text, func(u string) string { return strings.Repeat(" ", len(u)) })
 	kw := codeKeywordRe.FindAllStringIndex(text, -1)
 	seen := map[string]bool{}
 	var out []string
+	ki := 0 // kw[ki] is the last keyword ending at or before the candidate start
 	for _, m := range codeCandRe.FindAllStringIndex(text, -1) {
 		c := text[m[0]:m[1]]
 		digits := digitsRe.MatchString(c)
@@ -187,19 +202,20 @@ func Codes(text string) []string {
 		default:
 			continue
 		}
-		ok := false
-		for _, k := range kw {
-			if k[1] <= m[0] && m[0]-k[1] <= codeWindow {
-				ok = true
-				break
-			}
+		// Candidates ascend, so ki only moves forward.
+		for ki+1 < len(kw) && kw[ki+1][1] <= m[0] {
+			ki++
 		}
+		ok := ki < len(kw) && kw[ki][1] <= m[0] && m[0]-kw[ki][1] <= codeWindow
 		if !ok && digits && aloneOnLine(text, m[0], m[1]) {
 			ok = true
 		}
 		if ok && !seen[c] {
 			seen[c] = true
 			out = append(out, c)
+			if len(out) >= maxCodes {
+				break
+			}
 		}
 	}
 	return out

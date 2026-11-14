@@ -120,12 +120,13 @@ func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
 		{
 			id, decoded := address.Route(inboxes, s.Domain, d.Test)
 			d.TestInbox = "an inbox you cannot open"
+			seen := false
 			for _, in := range c.visible(inboxes) {
 				if in.ID == id {
-					d.TestInbox = in.Name
+					d.TestInbox, seen = in.Name, true
 				}
 			}
-			if decoded != "" {
+			if seen && decoded != "" {
 				d.TestInbox += " (real address " + decoded + ")"
 			}
 		}
@@ -150,6 +151,10 @@ func (s *Server) ruleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.ContainsAny(rl.AddressGlob, " ,") {
 		s.renderRules(w, r, rulesData{Error: "Address pattern: one address, * as wildcard."})
+		return
+	}
+	if rules.ValidGlob(rl.AddressGlob) != nil {
+		s.renderRules(w, r, rulesData{Error: "Address pattern: at most 3 * wildcards."})
 		return
 	}
 	if err := s.Store.CreateRule(r.Context(), rl); err != nil {

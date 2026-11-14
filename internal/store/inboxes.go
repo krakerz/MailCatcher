@@ -74,6 +74,10 @@ func (s *Store) DeleteInbox(ctx context.Context, id int64) error {
 // SetRouting updates where a message belongs after (re)routing.
 func (s *Store) SetRouting(ctx context.Context, messageID, inboxID int64, decodedTo string) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE messages SET inbox_id = ?, decoded_to = ? WHERE id = ?", inboxID, decodedTo, messageID)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: messages.inbox_id, messages.raw_sha256") {
+		// The target inbox already holds identical bytes: keep the message where it is.
+		_, err = s.db.ExecContext(ctx, "UPDATE messages SET decoded_to = ? WHERE id = ?", decodedTo, messageID)
+	}
 	return err
 }
 

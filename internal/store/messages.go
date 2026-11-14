@@ -87,8 +87,9 @@ func (s *Store) DefaultInboxID(ctx context.Context) (int64, error) {
 }
 
 // InsertMessage stores m with its raw source and attachments. Identical raw bytes
-// (e.g. a KV-stashed copy drained after a successful ingest) are stored once:
-// dup is true and m.ID is set to the existing row.
+// in the same inbox (e.g. a KV-stashed copy drained after a successful ingest) are
+// stored once: dup is true and m.ID is set to the existing row. Other inboxes keep
+// their own copy so mail never leaks across inboxes through de-duplication.
 func (s *Store) InsertMessage(ctx context.Context, m *Message, raw []byte, atts []mailparse.Attachment) (dup bool, err error) {
 	sum := sha256.Sum256(raw)
 	m.RawSHA256 = hex.EncodeToString(sum[:])
@@ -97,7 +98,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message, raw []byte, atts 
 		m.ReceivedAt = time.Now()
 	}
 
-	err = s.db.QueryRowContext(ctx, "SELECT id FROM messages WHERE raw_sha256 = ?", m.RawSHA256).Scan(&m.ID)
+	err = s.db.QueryRowContext(ctx, "SELECT id FROM messages WHERE inbox_id = ? AND raw_sha256 = ?", m.InboxID, m.RawSHA256).Scan(&m.ID)
 	if err == nil {
 		return true, nil
 	}
@@ -184,8 +185,9 @@ func (s *Store) InsertMessage(ctx context.Context, m *Message, raw []byte, atts 
 	return false, tx.Commit()
 }
 
-// findParent links a reply to the stored message it answers: In-Reply-To first,
-// then References from newest to oldest.
+// findParent links a reply to the stored message it answers in the same inbox:
+// In-Reply-To first, then References from newest to oldest. Other inboxes are
+// ignored so a crafted header cannot attach a message to a thread it cannot see.
 func findParent(ctx context.Context, tx *sql.Tx, m *Message) (*int64, error) {
 	ids := make([]string, 0, 1+len(m.References))
 	if m.InReplyTo != "" {
@@ -196,7 +198,7 @@ func findParent(ctx context.Context, tx *sql.Tx, m *Message) (*int64, error) {
 	}
 	for _, mid := range ids {
 		var id int64
-		err := tx.QueryRowContext(ctx, "SELECT id FROM messages WHERE message_id = ? ORDER BY id DESC LIMIT 1", mid).Scan(&id)
+		err := tx.QueryRowContext(ctx, "SELECT id FROM messages WHERE inbox_id = ? AND message_id = ? ORDER BY id DESC LIMIT 1", m.InboxID, mid).Scan(&id)
 		if err == nil {
 			return &id, nil
 		}

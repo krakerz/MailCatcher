@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"mailcatcher/internal/auth"
 	"mailcatcher/internal/cloudflare"
@@ -207,6 +208,48 @@ func TestDisabledUserLoggedOut(t *testing.T) {
 	c.do("POST", "/admin/users/"+itoa(plainUser.ID), url.Values{"csrf": {c.csrf("/admin/users")}, "action": {"disable"}})
 	if code, _, _ := u.do("GET", "/inbox/1", nil); code != http.StatusSeeOther {
 		t.Fatalf("disabled user still in: %d", code)
+	}
+}
+
+func TestSafeNext(t *testing.T) {
+	for _, bad := range []string{"/\t/evil.example", "/\n/evil.example", "/\\evil.example", "//evil.example", "https://evil.example", "", "/\x7f"} {
+		if got := safeNext(bad); got != "/" {
+			t.Errorf("safeNext(%q) = %q", bad, got)
+		}
+	}
+	if got := safeNext("/inbox/1?q=a"); got != "/inbox/1?q=a" {
+		t.Errorf("safe target changed: %q", got)
+	}
+}
+
+func TestEventsEndWithSession(t *testing.T) {
+	old := eventsPing
+	eventsPing = 50 * time.Millisecond
+	t.Cleanup(func() { eventsPing = old })
+
+	c, st := setup(t)
+	c.login("admin", "admin-pass")
+	req, _ := http.NewRequest("GET", c.base+"/events", nil)
+	for _, ck := range c.http.Jar.Cookies(req.URL) {
+		req.AddCookie(ck)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	admin, err := st.GetUserByName(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteUserSessions(context.Background(), admin.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, res.Body); err != nil || ctx.Err() != nil {
+		t.Fatalf("stream did not end after logout: %v / %v", err, ctx.Err())
 	}
 }
 

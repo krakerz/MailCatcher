@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -128,5 +129,47 @@ func TestIngestRejectsBadSignature(t *testing.T) {
 	}
 	if len(*stored) != 0 {
 		t.Errorf("stored %v", *stored)
+	}
+}
+
+type failReader struct{ t *testing.T }
+
+func (r failReader) Read([]byte) (int, error) {
+	r.t.Error("body was read")
+	return 0, errors.New("read")
+}
+
+func TestIngestRefusesBadHeadersWithoutReadingBody(t *testing.T) {
+	h, _, _ := setup(t)
+	for name, set := range map[string]func(http.Header){
+		"missing":     func(http.Header) {},
+		"garbage":     func(h http.Header) { h.Set(sig.HeaderTimestamp, "1"); h.Set(sig.HeaderSignature, "nope") },
+		"stale":       func(h http.Header) { sig.SetHeaders(h, secret, nil, now.Add(-time.Hour)) },
+		"short-sig":   func(h http.Header) { sig.SetHeaders(h, secret, nil, now); h.Set(sig.HeaderSignature, "abcd") },
+		"bad-ts-only": func(h http.Header) { sig.SetHeaders(h, secret, nil, now); h.Set(sig.HeaderTimestamp, "x") },
+	} {
+		req := httptest.NewRequest("POST", "/internal/ingest", failReader{t})
+		req.ContentLength = MaxSize
+		set(req.Header)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s: %d, want 401", name, rec.Code)
+		}
+	}
+}
+
+func TestIngestBusyWhenNoSlot(t *testing.T) {
+	h, _, _ := setup(t)
+	for i := 0; i < cap(slots); i++ {
+		slots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(slots); i++ {
+			<-slots
+		}
+	}()
+	if rec := post(h, mail("<m9@example.com>", "", "hi"), secret, now); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("got %d, want 503", rec.Code)
 	}
 }

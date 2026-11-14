@@ -37,6 +37,8 @@ func Bootstrap(ctx context.Context, st *store.Store, password string) error {
 	return nil
 }
 
+const maxUsername = 128
+
 type loginData struct {
 	Next, Username, Error string
 }
@@ -55,6 +57,13 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-site login refused", http.StatusForbidden)
 		return
 	}
+	// Unauthenticated endpoint: bound the body size and how long a client may take to send it.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(15 * time.Second))
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusRequestEntityTooLarge)
+		return
+	}
 	username := strings.TrimSpace(r.PostFormValue("username"))
 	password := r.PostFormValue("password")
 	next := r.PostFormValue("next")
@@ -63,6 +72,17 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	fail := func(msg string, code int) {
 		w.WriteHeader(code)
 		s.render(w, r, "login", "Log in", loginData{Next: next, Username: username, Error: msg})
+	}
+	if len(username) > maxUsername {
+		// No such user can exist; count it against the IP only, so junk names never become limiter keys.
+		username = ""
+		if s.Limiter.Blocked(ipKey) {
+			fail("Too many failed attempts. Try again in a few minutes.", http.StatusTooManyRequests)
+			return
+		}
+		s.Limiter.Fail(ipKey)
+		fail("Wrong username or password.", http.StatusUnauthorized)
+		return
 	}
 	if s.Limiter.Blocked(ipKey, userKey) {
 		fail("Too many failed attempts. Try again in a few minutes.", http.StatusTooManyRequests)

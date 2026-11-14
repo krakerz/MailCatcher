@@ -109,6 +109,10 @@ func (s *Server) inboxRows(w http.ResponseWriter, r *http.Request) {
 	s.pages["inbox"].ExecuteTemplate(w, "rows", d)
 }
 
+// eventsPing is the keep-alive interval of the event stream; it is also how often
+// the session is re-checked. A variable so tests can shorten it.
+var eventsPing = 25 * time.Second
+
 // events streams new-message notifications (SSE) to the open inbox page.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
@@ -121,16 +125,23 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "retry: 5000\n\n")
 	rc.Flush()
 	// Keeps the tunnel from closing an idle stream (Cloudflare drops after ~100 s).
-	ping := time.NewTicker(25 * time.Second)
+	ping := time.NewTicker(eventsPing)
 	defer ping.Stop()
+	access := current(r)
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ping.C:
+			// Logout, a disabled user or revoked inbox access must end the stream.
+			fresh, err := s.session(r)
+			if err != nil {
+				return
+			}
+			access = fresh
 			fmt.Fprint(w, ": ping\n\n")
 		case e := <-ch:
-			if !current(r).canSee(e.InboxID) {
+			if !access.canSee(e.InboxID) {
 				continue
 			}
 			b, _ := json.Marshal(e)
@@ -172,9 +183,15 @@ func (s *Server) messagePage(w http.ResponseWriter, r *http.Request) {
 	if m.Direction == "in" {
 		s.Store.MarkRead(r.Context(), current(r).User.ID, m.ID)
 	}
-	if d.Children, err = s.Store.Children(r.Context(), m.ID); err != nil {
+	children, err := s.Store.Children(r.Context(), m.ID)
+	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	for _, c := range children {
+		if current(r).canSee(c.InboxID) {
+			d.Children = append(d.Children, c)
+		}
 	}
 	if m.SentBy != nil {
 		if u, err := s.Store.GetUser(r.Context(), *m.SentBy); err == nil {

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func crlf(s string) []byte { return []byte(strings.ReplaceAll(s, "\n", "\r\n")) }
@@ -142,5 +143,17 @@ func TestLinksDedupAndTrim(t *testing.T) {
 	got := Links(`<a href="https://x.io/a">a</a><a href="javascript:x()">b</a>`, "see https://x.io/a, and http://y.io/b.")
 	if want := []string{"https://x.io/a", "http://y.io/b"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestCodesLargeInputIsFast(t *testing.T) {
+	text := strings.Repeat("code 1234 ", 200_000)
+	start := time.Now()
+	got := Codes(text)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("Codes took %v", d)
+	}
+	if !reflect.DeepEqual(got, []string{"1234"}) {
+		t.Fatalf("got %v", got)
 	}
 }

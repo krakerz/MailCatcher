@@ -27,7 +27,9 @@ Short version, once Cloudflare is set up:
 
 1. Copy `.env.example` to `.env` and fill in the values.
 2. Create the data folder as the user in `MC_UID`/`MC_GID`: `mkdir data`.
-3. Run `docker compose up -d --build`.
+3. Run `docker compose pull && docker compose up -d` to use the prebuilt image (`ghcr.io/krakerz/mailcatcher`, amd64 and arm64), or add `--build` to `up` to make it from the checkout.
+
+To update: `git pull && docker compose pull && docker compose up -d`. Pin a version with `MC_IMAGE=ghcr.io/krakerz/mailcatcher:<version>` in `.env`.
 
 ## Building from source
 
@@ -121,7 +123,7 @@ Tip: pass `since=<test start time>` so a test never picks up mail from an earlie
 | `MC_HMAC_SECRET` | — | Shared secret with the Worker, 32+ characters (required). |
 | `MC_CF_API_TOKEN` | — | Cloudflare token (Email Routing Addresses: Edit) to manage destination addresses from the app. |
 | `MC_CF_ACCOUNT_ID` | — | Cloudflare account ID for the above. |
-| `MC_PUBLIC_URL` | — | The app's public URL (tunnel hostname, e.g. `https://inbox.example.com`). Pushed to the Worker as the delivery target, so changing the hostname needs no Worker redeploy. |
+| `MC_PUBLIC_URL` | — | The app's public URL (tunnel hostname, e.g. `https://inbox.example.com`). Pushed to the Worker as the delivery target, so changing the hostname needs no Worker redeploy within the same parent domain as `INGEST_URL`. |
 | `MC_WORKER_URL` | — | Worker URL for sending; empty disables reply/compose/forward. |
 | `MC_ADMIN_PASSWORD` | random | First admin's password, used on first start only. |
 | `MC_RETENTION_DAYS` | `30` | Delete messages older than this many days (checked hourly); `0` keeps everything. |

@@ -1,10 +1,12 @@
 module mailcatcher
 
-go 1.27.1
+go 1.27.4
 
 require (
 	github.com/jhillyerd/enmime/v2 v2.5.0
-	golang.org/x/net v0.61.0
+	github.com/wneessen/go-mail v0.8.1
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -30,8 +32,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
-	github.com/wneessen/go-mail v0.8.1 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	modernc.org/libc v1.77.1 // indirect

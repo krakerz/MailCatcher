@@ -59,7 +59,7 @@ cp wrangler.example.toml wrangler.toml
 Edit `worker/wrangler.toml` (it is gitignored, your values stay local):
 
 - `kv_namespaces` → put the printed id into `id`. Keep `binding = "KV"`; ignore the binding name wrangler suggests.
-- `INGEST_URL` → `https://<app hostname>/internal/ingest`. This is only a fallback: once the app runs with `MC_PUBLIC_URL`, it tells the Worker its address itself.
+- `INGEST_URL` → `https://<app hostname>/internal/ingest`. This is only a fallback: once the app runs with `MC_PUBLIC_URL`, it tells the Worker its address itself. The Worker only accepts a new hostname equal to `INGEST_URL`'s or under the same parent domain (`mail.example.test` allows `inbox.example.test`); moving to a different domain needs `INGEST_URL` changed and the Worker redeployed.
 
 Create the shared secret and deploy:
 
@@ -110,7 +110,7 @@ Fill in `.env`:
 | `MC_HMAC_SECRET` | The same value you gave `wrangler secret put HMAC_SECRET`. |
 | `MC_DOMAIN` | `<domain>` |
 | `MC_CF_API_TOKEN`, `MC_CF_ACCOUNT_ID` | Token and account ID from step 6 (optional). |
-| `MC_PUBLIC_URL` | `https://<app hostname>` from step 5. Changing the hostname later = new public hostname in the tunnel + new `MC_PUBLIC_URL` + restart; no Worker redeploy. |
+| `MC_PUBLIC_URL` | `https://<app hostname>` from step 5. Changing the hostname later = new public hostname in the tunnel + new `MC_PUBLIC_URL` + restart; no Worker redeploy as long as it stays under the same parent domain as `INGEST_URL`. |
 | `MC_WORKER_URL` | The Worker URL from step 3 (`https://mailcatcher.<subdomain>.workers.dev`). Without it, reply/compose/forward are disabled. |
 | `MC_RETENTION_DAYS` | Optional, default `30`. Messages older than this are deleted; `0` keeps everything. |
 | `MC_UID`, `MC_GID` | Owner of `./data` on the host (default `1000`). |
@@ -120,9 +120,11 @@ Create the data folder as the user that should own it (its uid/gid go into `MC_U
 
 ```sh
 mkdir -p data
-docker compose up -d --build
+docker compose pull && docker compose up -d
 docker compose logs -f mailcatcher
 ```
+
+That pulls the prebuilt image (`ghcr.io/krakerz/mailcatcher:latest`, amd64 and arm64). To make the image from the checkout instead, add `--build` to `up`. To stay on one version, set `MC_IMAGE=ghcr.io/krakerz/mailcatcher:<version>` in `.env`.
 
 `cloudflared` starts once the app reports healthy. Mail that arrived before the app was up is collected from Workers KV within a minute.
 

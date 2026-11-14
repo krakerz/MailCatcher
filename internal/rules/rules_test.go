@@ -76,10 +76,29 @@ func TestGlobAndInboxCombined(t *testing.T) {
 }
 
 func TestGlobRegex(t *testing.T) {
-	for glob, want := range map[string]string{"": "", "*": "", "b.gmail@x.test": `^b\.gmail@x\.test$`, "*@x.test": `^.*@x\.test$`} {
+	for glob, want := range map[string]string{"": "", "*": "", "b.gmail@x.test": `^b\.gmail@x\.test$`, "*@x.test": `^.*@x\.test$`, "a**b": "^a.*b$"} {
 		if got := GlobRegex(glob); got != want {
 			t.Errorf("GlobRegex(%q) = %q, want %q", glob, got, want)
 		}
+	}
+}
+
+func TestValidGlobCapsWildcards(t *testing.T) {
+	for glob, ok := range map[string]bool{"a*b*c*d": true, "a**b**c**d": true, "a*b*c*d*e": false, strings.Repeat("a", 255): false, "": true} {
+		if got := ValidGlob(glob) == nil; got != ok {
+			t.Errorf("ValidGlob(%q) = %v, want %v", glob, got, ok)
+		}
+	}
+	list := []*store.ForwardRule{
+		{AddressGlob: "a*a*a*a*b", Destination: "bad@dest.test", Enabled: true},
+		{AddressGlob: "a*a*a*b", Destination: "ok@dest.test", Enabled: true},
+	}
+	compiled := Compile(list, inboxes, "main.test")
+	if len(compiled) != 1 || compiled[0].Destination != "ok@dest.test" {
+		t.Fatalf("Compile = %+v, want only the 3-star rule", compiled)
+	}
+	if got := Match(compiled, "aaab"); len(got) != 1 {
+		t.Errorf("3-star glob should match, got %v", got)
 	}
 }
 
@@ -195,6 +214,50 @@ console.log(JSON.stringify(addrs.map((a) => matchRules(rules, a))));`), 0o600)
 		}
 		if !reflect.DeepEqual(goRes, js[i]) {
 			t.Errorf("%s: Go %v, Worker %v", a, goRes, js[i])
+		}
+	}
+}
+
+// The Worker's pure helpers: the long-recipient bound and the ingest host pin.
+func TestWorkerGuards(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	rulesJS, _ := filepath.Abs("../../worker/src/rules.js")
+	script := filepath.Join(t.TempDir(), "guards.mjs")
+	os.WriteFile(script, []byte(`import { matchRules, ingestHostAllowed } from "file://`+rulesJS+`";
+const any = [{ all: [], none: [], destination: "d@dest.test" }];
+const u = (h) => "https://" + h + "/internal/ingest";
+console.log(JSON.stringify({
+  short: matchRules(any, "a@x.test"),
+  long: matchRules(any, "a".repeat(255) + "@x.test"),
+  same: ingestHostAllowed(u("mail.example.test"), u("mail.example.test")),
+  sibling: ingestHostAllowed(u("mail.example.test"), u("inbox.example.test")),
+  other: ingestHostAllowed(u("mail.example.test"), u("evil.test")),
+  suffix: ingestHostAllowed(u("mail.example.test"), u("evilexample.test")),
+  apex: ingestHostAllowed(u("example.test"), u("inbox.example.test")),
+  unset: ingestHostAllowed(undefined, u("evil.test")),
+}));`), 0o600)
+	out, err := exec.Command(node, script).Output()
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("node output %q: %v", out, err)
+	}
+	if len(got["short"].([]any)) != 1 || len(got["long"].([]any)) != 0 {
+		t.Errorf("recipient bound: short %v, long %v", got["short"], got["long"])
+	}
+	for _, k := range []string{"same", "sibling", "unset"} {
+		if got[k] != "" {
+			t.Errorf("%s: want allowed, got %q", k, got[k])
+		}
+	}
+	for _, k := range []string{"other", "suffix", "apex"} {
+		if got[k] == "" {
+			t.Errorf("%s: want denied", k)
 		}
 	}
 }
