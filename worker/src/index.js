@@ -1,5 +1,5 @@
 import { EmailMessage } from "cloudflare:email";
-import { matchRules } from "./rules.js";
+import { ingestHostAllowed, matchRules } from "./rules.js";
 
 const enc = new TextEncoder();
 
@@ -55,7 +55,13 @@ async function ingest(env, from, to, raw, forwarded) {
 export default {
   async email(message, env, ctx) {
     const raw = await new Response(message.raw).arrayBuffer();
-    const forwardTo = matchRules((await env.KV.get("rules", "json")) || [], message.to);
+    // Rule evaluation must never stop mail intake.
+    let forwardTo = [];
+    try {
+      forwardTo = matchRules((await env.KV.get("rules", "json")) || [], message.to);
+    } catch (err) {
+      console.log("rules failed", String(err.message || err));
+    }
     try {
       await ingest(env, message.from, message.to, raw, forwardTo);
     } catch (err) {
@@ -100,12 +106,20 @@ export default {
     }
 
     const m = url.pathname.match(/^\/pending\/(pending:.+)$/);
+    let key;
+    if (m) {
+      try {
+        key = decodeURIComponent(m[1]);
+      } catch {
+        return new Response("bad key", { status: 400 });
+      }
+    }
     if (m && req.method === "GET") {
-      const raw = await env.KV.get(decodeURIComponent(m[1]), "arrayBuffer");
+      const raw = await env.KV.get(key, "arrayBuffer");
       return raw ? new Response(raw, { headers: { "Content-Type": "message/rfc822" } }) : new Response("not found", { status: 404 });
     }
     if (m && req.method === "DELETE") {
-      await env.KV.delete(decodeURIComponent(m[1]));
+      await env.KV.delete(key);
       return new Response("deleted");
     }
 
@@ -118,6 +132,8 @@ export default {
       if (typeof ingestUrl !== "string" || !/^https:\/\/[^/\s]+\/internal\/ingest$/.test(ingestUrl)) {
         return new Response("ingest_url must be https://<host>/internal/ingest", { status: 400 });
       }
+      const denied = ingestHostAllowed(env.INGEST_URL, ingestUrl);
+      if (denied) return new Response(denied, { status: 400 });
       await putIfChanged(env, "ingest_url", ingestUrl);
       return Response.json({ ingest_url: ingestUrl });
     }
