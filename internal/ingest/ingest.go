@@ -36,11 +36,28 @@ type Handler struct {
 	Now      func() time.Time
 }
 
+// slots limits concurrent body reads. A refused upload is not lost: the Worker
+// keeps the mail in KV and the app collects it later.
+var slots = make(chan struct{}, 8)
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	now := time.Now
 	if h.Now != nil {
 		now = h.Now
 	}
+	// Refuse anything that cannot be validly signed before reading its body.
+	if !sig.Plausible(r.Header, now()) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	default:
+		http.Error(w, "busy, retry later", http.StatusServiceUnavailable)
+		return
+	}
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxSize))
 	if err != nil {
 		var tooBig *http.MaxBytesError

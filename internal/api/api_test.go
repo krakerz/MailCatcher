@@ -30,7 +30,7 @@ func setup(t *testing.T) (*httptest.Server, *store.Store, *events.Broker) {
 	}
 	b := events.NewBroker()
 	mux := http.NewServeMux()
-	(&API{Store: st, Broker: b}).Register(mux)
+	(&API{Store: st, Broker: b, Domain: "example.test"}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, st, b
@@ -156,5 +156,60 @@ func TestDelete(t *testing.T) {
 	get(t, srv.URL+"/api/inboxes/1/messages", key, &l)
 	if d.Deleted != 1 || len(l.Messages) != 1 || l.Messages[0].EnvelopeTo != "b@example.test" {
 		t.Fatalf("deleted %d, left %+v", d.Deleted, l)
+	}
+}
+
+func TestLongPollWaiterCap(t *testing.T) {
+	_, st, _ := setup(t)
+	// setup hides the API value; build a second server to inspect the counter.
+	a := &API{Store: st, Broker: events.NewBroker(), Domain: "example.test"}
+	mux := http.NewServeMux()
+	a.Register(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	waiting := func() int {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.waiters[1]
+	}
+	poll := func(ctx context.Context) (int, error) {
+		req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/api/inboxes/1/messages?to=nobody&wait=5s", nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0, err
+		}
+		res.Body.Close()
+		return res.StatusCode, nil
+	}
+	waitFor := func(n int) {
+		t.Helper()
+		for i := 0; i < 500 && waiting() != n; i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := waiting(); got != n {
+			t.Fatalf("waiters = %d, want %d", got, n)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for range MaxWaiters {
+		go poll(ctx)
+	}
+	waitFor(MaxWaiters)
+
+	start := time.Now()
+	if code, err := poll(context.Background()); err != nil || code != http.StatusTooManyRequests || time.Since(start) > time.Second {
+		t.Fatalf("over the cap: %d %v after %v", code, err, time.Since(start))
+	}
+
+	cancel()
+	waitFor(0)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel2()
+	if _, err := poll(ctx2); err == nil {
+		t.Fatal("wait after cancel should have been accepted and then timed out client-side")
 	}
 }

@@ -323,6 +323,49 @@ curl -X DELETE -H "Authorization: Bearer $MC_API_KEY" \
 
 Errors: `400` (invalid `direction`, `since` or `limit`), `401`, `403`, `500`.
 
+### Encode and decode addresses
+
+`POST /api/address/encode`
+`POST /api/address/decode`
+
+Converts between real addresses and this inbox's catch-all addresses, using the inbox's address format. The inbox is the one the API key belongs to; there is no inbox id in the path.
+
+- **encode**: real address → the catch-all address that reaches this inbox (`jane@gmail.com` → `jane=gmail.com@<your catch all domain>`).
+- **decode**: catch-all address → the real address it stands for.
+
+Body (JSON): one address, a list, or both. At most 1000 addresses per call.
+
+```json
+{"addresses": ["jane@gmail.com", "bob@yahoo.com"]}
+```
+
+```json
+{"address": "jane@gmail.com"}
+```
+
+Success: `200 OK`, one result per address in the order sent. A bad address does not fail the call; its result has `error` and no `output`.
+
+```json
+{
+  "results": [
+    {"input": "jane@gmail.com", "output": "jane=gmail.com@<your catch all domain>"},
+    {"input": "nope", "error": "\"nope\" is not an email address"}
+  ]
+}
+```
+
+Decode answers `not an address of this inbox` for an address on another domain, one that does not fit the format, and one that is delivered to a different inbox. Encode refuses an address the format cannot express, and one whose encoded form would be delivered to a different inbox.
+
+Example request:
+
+```sh
+curl -X POST -H "Authorization: Bearer $MC_API_KEY" \
+  -d '{"addresses": ["jane@gmail.com"]}' \
+  "https://<app hostname>/api/address/encode"
+```
+
+Errors: `400` (body is not JSON, no address, or more than 1000), `401`, `409` (the inbox's address format is invalid), `500`.
+
 ## Errors
 
 Errors from the API are JSON objects with a single field:
@@ -341,6 +384,7 @@ The `error` text is for humans; match on the status code. Status codes used:
 | `401` | Missing or malformed `Authorization` header, or unknown API key. |
 | `403` | Key belongs to a different inbox than the id in the path. |
 | `404` | Message or attachment not found, or it belongs to another inbox. |
+| `409` | Encode/decode: the inbox's address format is invalid. |
 | `422` | Recipient is not a Cloudflare-verified destination address. |
 | `500` | Internal error. |
 | `502` | Send failed for another reason. |

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
@@ -46,5 +47,33 @@ func TestLimiter(t *testing.T) {
 	l.Reset("ip:1")
 	if len(l.fails) != 0 {
 		t.Fatalf("not reset: %v", l.fails)
+	}
+}
+
+func TestLimiterSweepsExpiredKeys(t *testing.T) {
+	now := time.Unix(0, 0)
+	l := NewLimiter(3, time.Minute)
+	l.now = func() time.Time { return now }
+	for i := 0; i < 500; i++ {
+		l.Fail("user:" + strconv.Itoa(i))
+	}
+	now = now.Add(2 * time.Minute)
+	l.Fail("ip:1.2.3.4")
+	if n := len(l.fails); n != 1 {
+		t.Fatalf("map has %d keys after sweep, want 1", n)
+	}
+}
+
+func TestLimiterCapsUsernameKeys(t *testing.T) {
+	l := NewLimiter(3, time.Hour)
+	for i := 0; i < maxKeys+50; i++ {
+		l.Fail("user:" + strconv.Itoa(i))
+	}
+	if len(l.fails) > maxKeys {
+		t.Fatalf("map has %d keys, cap is %d", len(l.fails), maxKeys)
+	}
+	l.Fail("ip:1.2.3.4")
+	if _, ok := l.fails["ip:1.2.3.4"]; !ok {
+		t.Fatal("ip key must still be tracked when full")
 	}
 }

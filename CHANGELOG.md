@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-14
+
+### Added
+- API: encode real addresses to an inbox's catch-all addresses and decode them back, one or up to 1000 per call
+
+### Changed
+- The same mail sent to addresses in two inboxes is now stored in both
+- Forward-rule address patterns take at most 3 `*` wildcards
+- The Worker only accepts a new delivery hostname under the same parent domain as its `INGEST_URL` (redeploy the Worker)
+- Docker Compose: the app container is read-only apart from `./data`, and `cloudflared` is pinned to a version
+
+### Security
+- Updated the HTML parser library and the minimum Go version to pick up fixes for known vulnerabilities (rebuild the image with `--pull`)
+- A large crafted mail, oversized login requests or slow unsigned uploads can no longer tie up the app
+- A forward rule with many wildcards can no longer stall mail intake in the Worker
+- Login and "back" redirects can no longer be pointed at another site
+- Replies are no longer linked to messages in other inboxes, and the rule tester no longer shows addresses of inboxes the user cannot open
+- Live updates stop when the session ends, and each API key is limited to 20 waiting requests
+
 ## [0.2.1] — 2026-10-18
 
 ### Fixed

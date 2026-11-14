@@ -5,6 +5,7 @@
 package rules
 
 import (
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -54,14 +55,41 @@ func inboxExprs(inboxes []*store.Inbox, mainDomain string) map[int64]WorkerRule 
 	return out
 }
 
+// MaxWildcards bounds the "*" in a rule address: the Worker evaluates the
+// compiled regex with a backtracking engine, so unbounded stars are a CPU risk.
+const MaxWildcards = 3
+
+// maxGlobLen is the longest valid email address.
+const maxGlobLen = 254
+
+// collapseStars folds runs of "*" into one.
+func collapseStars(glob string) string {
+	for strings.Contains(glob, "**") {
+		glob = strings.ReplaceAll(glob, "**", "*")
+	}
+	return glob
+}
+
+// ValidGlob rejects rule addresses with too many wildcards or too long.
+func ValidGlob(glob string) error {
+	glob = collapseStars(strings.ToLower(strings.TrimSpace(glob)))
+	if len(glob) > maxGlobLen {
+		return errors.New("address pattern too long")
+	}
+	if strings.Count(glob, "*") > MaxWildcards {
+		return errors.New("too many wildcards")
+	}
+	return nil
+}
+
 // GlobRegex turns a catch-all address glob ("*" wildcard) into an anchored regex.
 // An empty glob or "*" means any address and returns "".
 func GlobRegex(glob string) string {
-	glob = strings.ToLower(strings.TrimSpace(glob))
+	glob = collapseStars(strings.ToLower(strings.TrimSpace(glob)))
 	if glob == "" || glob == "*" {
 		return ""
 	}
-	parts := strings.Split(glob, "*")
+	parts := strings.Split(collapseStars(glob), "*")
 	for i, p := range parts {
 		parts[i] = regexp.QuoteMeta(p)
 	}
@@ -93,6 +121,9 @@ func compileRule(r *store.ForwardRule, inboxes []*store.Inbox, exprs map[int64]W
 		return WorkerRule{All: slices.Clone(e.All), None: slices.Clone(e.None), Destination: dest}, ok
 	}
 	glob := strings.ToLower(strings.TrimSpace(r.AddressGlob))
+	if ValidGlob(glob) != nil {
+		return nil // stored before the cap existed: neutralised, never pushed to the Worker
+	}
 
 	if glob == "" || glob == "*" || IsCatchAllPattern(glob, inboxes, mainDomain) {
 		wr := WorkerRule{All: []string{}, None: []string{}, Destination: dest}
@@ -184,6 +215,9 @@ func listAccepts(in *store.Inbox, f *address.Format, real, mainDomain string) bo
 func Reach(r *store.ForwardRule, inboxes []*store.Inbox, mainDomain string) []string {
 	exprs := inboxExprs(inboxes, mainDomain)
 	glob := strings.ToLower(strings.TrimSpace(r.AddressGlob))
+	if ValidGlob(glob) != nil {
+		return nil
+	}
 	var out []string
 	for _, in := range inboxes {
 		if r.InboxID != 0 && in.ID != r.InboxID {

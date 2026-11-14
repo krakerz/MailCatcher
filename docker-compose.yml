@@ -15,14 +15,25 @@ services:
       MC_RETENTION_DAYS: ${MC_RETENTION_DAYS:-30}
     volumes:
       - ./data:/data
+    # Only ./data is writable; /tmp (in memory) is for upload spill-over.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     # No published ports: reachable only through the tunnel (http://mailcatcher:8080).
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned: bump on purpose (https://github.com/cloudflare/cloudflared/releases).
+    image: cloudflare/cloudflared:2026.11.0
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       mailcatcher:
         condition: service_healthy

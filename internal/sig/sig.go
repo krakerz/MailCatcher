@@ -53,3 +53,21 @@ func Verify(secret string, h http.Header, body []byte, now time.Time) error {
 	}
 	return nil
 }
+
+// Plausible is a cheap pre-check on the headers alone (timestamp within the skew,
+// 64 hex chars of signature), so a bogus request is refused before its body is read.
+func Plausible(h http.Header, now time.Time) bool {
+	ts, err := strconv.ParseInt(h.Get(HeaderTimestamp), 10, 64)
+	if err != nil {
+		return false
+	}
+	if d := now.Sub(time.Unix(ts, 0)); d > MaxSkew || d < -MaxSkew {
+		return false
+	}
+	g := h.Get(HeaderSignature)
+	if len(g) != hex.EncodedLen(sha256.Size) {
+		return false
+	}
+	_, err = hex.DecodeString(g)
+	return err == nil
+}

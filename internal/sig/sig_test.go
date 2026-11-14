@@ -2,6 +2,7 @@ package sig
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,5 +35,28 @@ func TestVerify(t *testing.T) {
 	}
 	if err := Verify("s3cret", http.Header{}, body, now); err == nil {
 		t.Fatal("missing headers accepted")
+	}
+}
+
+func TestPlausible(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	good := http.Header{}
+	SetHeaders(good, "sekret", []byte("x"), now)
+	if !Plausible(good, now) {
+		t.Fatal("valid headers rejected")
+	}
+	for name, mutate := range map[string]func(http.Header){
+		"no signature":  func(h http.Header) { h.Del(HeaderSignature) },
+		"short":         func(h http.Header) { h.Set(HeaderSignature, "abcd") },
+		"not hex":       func(h http.Header) { h.Set(HeaderSignature, strings.Repeat("zz", 32)) },
+		"no timestamp":  func(h http.Header) { h.Del(HeaderTimestamp) },
+		"bad timestamp": func(h http.Header) { h.Set(HeaderTimestamp, "soon") },
+		"stale":         func(h http.Header) { h.Set(HeaderTimestamp, "1699990000") },
+	} {
+		h := good.Clone()
+		mutate(h)
+		if Plausible(h, now) {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

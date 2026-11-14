@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mailcatcher/internal/auth"
@@ -27,6 +28,35 @@ type API struct {
 	Store  *store.Store
 	Broker *events.Broker
 	Mailer *outbound.Mailer
+	Domain string // main catch-all domain
+
+	mu      sync.Mutex
+	waiters map[int64]int // inbox id -> requests currently long-polling
+}
+
+// MaxWaiters caps concurrent long-polling list requests per inbox; each holds a
+// goroutine and a broker subscription.
+const MaxWaiters = 20
+
+// acquireWaiter reserves a long-poll slot for the inbox; the caller must call the
+// returned release func when ok.
+func (a *API) acquireWaiter(inboxID int64) (release func(), ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.waiters == nil {
+		a.waiters = map[int64]int{}
+	}
+	if a.waiters[inboxID] >= MaxWaiters {
+		return nil, false
+	}
+	a.waiters[inboxID]++
+	return func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.waiters[inboxID]--; a.waiters[inboxID] <= 0 {
+			delete(a.waiters, inboxID)
+		}
+	}, true
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -37,6 +67,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/messages/{id}/attachments/{aid}", a.key(a.attachment))
 	mux.Handle("POST /api/messages/{id}/reply", a.key(a.reply))
 	mux.Handle("POST /api/messages/{id}/forward", a.key(a.forward))
+	mux.Handle("POST /api/address/encode", a.key(a.convert(true)))
+	mux.Handle("POST /api/address/decode", a.key(a.convert(false)))
 }
 
 type ctxKey struct{}
@@ -133,6 +165,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
+	counted := false
 	for {
 		msgs, err := a.Store.ListMessages(r.Context(), f)
 		if err != nil {
@@ -143,6 +176,15 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		if len(msgs) > 0 || wait == 0 {
 			writeJSON(w, map[string]any{"messages": summaries(msgs)})
 			return
+		}
+		if !counted {
+			release, ok := a.acquireWaiter(f.InboxID)
+			if !ok {
+				jsonErr(w, http.StatusTooManyRequests, "too many waiting requests for this inbox")
+				return
+			}
+			defer release()
+			counted = true
 		}
 	waiting:
 		for {
