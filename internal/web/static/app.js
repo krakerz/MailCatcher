@@ -85,6 +85,26 @@ onPage((signal) => {
   apply(read());
 });
 
+// Mail bodies (sandboxed, no scripts) get the effective theme in their URL; reloaded
+// when the theme switch or the OS preference changes it.
+onPage((signal) => {
+  const frames = document.querySelectorAll("iframe[data-src]");
+  if (!frames.length) return;
+  const dark = matchMedia("(prefers-color-scheme: dark)");
+  const load = () => {
+    const t = document.documentElement.dataset.theme || (dark.matches ? "dark" : "light");
+    for (const f of frames) {
+      const src = f.dataset.src + (f.dataset.src.includes("?") ? "&" : "?") + "theme=" + t;
+      if (f.getAttribute("src") !== src) f.src = src;
+    }
+  };
+  dark.addEventListener("change", load, { signal });
+  const obs = new MutationObserver(load);
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  signal.addEventListener("abort", () => obs.disconnect());
+  load();
+});
+
 // Mobile sidebar.
 onPage((signal) => {
   const shell = document.querySelector("[data-shell]");
