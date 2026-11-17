@@ -282,7 +282,20 @@ func (s *Server) messageBody(w http.ResponseWriter, r *http.Request) {
 		"img-src "+img+"; style-src 'unsafe-inline' "+imgIfRemote(img)+"; font-src data: "+imgIfRemote(img)+"; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, `<!doctype html><meta charset="utf-8"><base target="_blank">`)
+	io.WriteString(w, bodyTheme(r.URL.Query().Get("theme"), body))
 	io.WriteString(w, body)
+}
+
+// ownColorsRe spots mail that sets its own colours; recolouring that for dark mode
+// risks dark-on-dark text, so only colourless mail follows the app theme.
+var ownColorsRe = regexp.MustCompile(`(?i)(?:background|bgcolor|\bcolor)\s*[:=]`)
+
+// bodyTheme is a default style put ahead of the mail's own markup (whose rules win).
+func bodyTheme(theme, body string) string {
+	if theme == "dark" && !ownColorsRe.MatchString(body) {
+		return `<style>html{background:#171a21;color:#e6e8ee;color-scheme:dark}a{color:#7088ff}</style>`
+	}
+	return `<style>html{background:#fff}</style>`
 }
 
 func imgIfRemote(img string) string {

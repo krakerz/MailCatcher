@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-17
+
+### Changed
+- HTML mail without its own colours now follows the dark theme instead of always showing on white
+
 ## [0.3.0] — 2026-11-14
 
 ### Added

@@ -72,7 +72,7 @@
     {{if $d.Images}}<a class="button secondary small" href="/m/{{$m.ID}}">{{icon "image-off"}} Block remote images</a>
     {{else}}<a class="button secondary small" href="/m/{{$m.ID}}?images=1">{{icon "image"}} Load remote images</a>{{end}}
   </div>
-  <iframe class="body" sandbox="allow-popups allow-popups-to-escape-sandbox" src="/m/{{$m.ID}}/body{{if $d.Images}}?images=1{{end}}" title="Message body"></iframe>
+  <iframe class="body" sandbox="allow-popups allow-popups-to-escape-sandbox" data-src="/m/{{$m.ID}}/body{{if $d.Images}}?images=1{{end}}" title="Message body"></iframe>
 </section>
 {{end}}
 
