@@ -85,6 +85,28 @@ onPage((signal) => {
   apply(read());
 });
 
+// Update card: shown unless this version was dismissed; a newer one shows it again.
+onPage((signal) => {
+  const card = document.querySelector("[data-update-card]");
+  if (!card) return;
+  const key = "mc-update-dismissed";
+  let dismissed = null;
+  try {
+    dismissed = localStorage.getItem(key);
+  } catch {}
+  card.hidden = dismissed === card.dataset.updateCard;
+  card.querySelector("[data-update-dismiss]")?.addEventListener(
+    "click",
+    () => {
+      try {
+        localStorage.setItem(key, card.dataset.updateCard);
+      } catch {}
+      card.hidden = true;
+    },
+    { signal },
+  );
+});
+
 // Mail bodies (sandboxed, no scripts) get the effective theme in their URL; reloaded
 // when the theme switch or the OS preference changes it.
 onPage((signal) => {

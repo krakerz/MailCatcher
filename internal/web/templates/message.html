@@ -37,7 +37,7 @@
     <tr><th>To</th><td>{{addrs $m.To}}</td></tr>
     {{if $m.Cc}}<tr><th>Cc</th><td>{{addrs $m.Cc}}</td></tr>{{end}}
     <tr><th>Envelope</th><td class="mono">{{$m.EnvelopeFrom}} → {{$m.EnvelopeTo}}{{if eq $m.Direction "in"}}{{with $m.DecodedTo}} <span class="badge accent">real recipient {{.}}</span>{{end}}{{end}}</td></tr>
-    <tr><th>Date</th><td>{{full $m.Date}} <span class="muted">· {{if eq $m.Direction "out"}}sent{{else}}received{{end}} {{full $m.ReceivedAt}} · {{size $m.Size}}</span></td></tr>
+    <tr><th>Date</th><td>{{full $m.Date}} <span class="muted">{{if not (near $m.Date $m.ReceivedAt)}}· {{if eq $m.Direction "out"}}sent{{else}}received{{end}} {{full $m.ReceivedAt}} {{end}}· {{zoneName}} · {{size $m.Size}}</span></td></tr>
     {{if $m.AutoForwarded}}<tr><th>Auto-forwarded</th><td class="mono">{{range $i, $x := $m.AutoForwarded}}{{if $i}}, {{end}}{{$x}}{{end}}</td></tr>{{end}}
     {{if $m.Codes}}<tr><th>Codes</th><td>{{range $m.Codes}}<span class="code big">{{.}}</span> {{end}}</td></tr>{{end}}
   </table>

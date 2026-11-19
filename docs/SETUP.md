@@ -113,6 +113,9 @@ Fill in `.env`:
 | `MC_PUBLIC_URL` | `https://<app hostname>` from step 5. Changing the hostname later = new public hostname in the tunnel + new `MC_PUBLIC_URL` + restart; no Worker redeploy as long as it stays under the same parent domain as `INGEST_URL`. |
 | `MC_WORKER_URL` | The Worker URL from step 3 (`https://mailcatcher.<subdomain>.workers.dev`). Without it, reply/compose/forward are disabled. |
 | `MC_RETENTION_DAYS` | Optional, default `30`. Messages older than this are deleted; `0` keeps everything. |
+| `MC_UPDATE_CHECK` | Optional, default `true`. Once per interval the app asks GitHub for the latest published release (this sends the server's public IP to GitHub) and shows admins a card when a newer one exists. `false` = no requests at all. |
+| `MC_UPDATE_CHECK_INTERVAL` | Optional, default `24h`. Go durations or whole days (`12h`, `7d`); at least `1h`. |
+| `MC_TIMEZONE` | Optional, default UTC. Time zone for the UI and sent mail, e.g. `Asia/Singapore`. |
 | `MC_UID`, `MC_GID` | Owner of `./data` on the host (default `1000`). |
 | `MC_ADMIN_PASSWORD` | Optional. Password for the first `admin` user. Leave empty to get a random one in the log. |
 

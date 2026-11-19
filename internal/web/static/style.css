@@ -69,6 +69,12 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
 .me:hover { text-decoration: none; }
 .me small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 
+.update-card { display: flex; gap: 8px; align-items: flex-start; margin: 0 4px; padding: 8px 10px; background: var(--accent-soft); border: 1px solid var(--line); border-radius: var(--radius); font-size: 12px; line-height: 1.4; }
+.update-card[hidden] { display: none; }
+.update-card .icon { color: var(--accent); flex: none; margin-top: 1px; }
+.update-actions { display: flex; gap: 10px; margin-top: 2px; }
+.update-actions a, .update-actions button { font-size: 12px; cursor: pointer; }
+.zone { display: flex; align-items: center; gap: 6px; margin: 0 8px; font-size: 12px; color: var(--muted); }
 .theme-switch { display: flex; background: var(--code-bg); border-radius: 8px; padding: 3px; margin: 0 4px; }
 .theme-switch button { flex: 1; display: flex; justify-content: center; padding: 5px 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
 .theme-switch button:hover { background: none; color: var(--fg); }

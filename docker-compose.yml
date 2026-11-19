@@ -15,6 +15,9 @@ services:
       MC_CF_ACCOUNT_ID: ${MC_CF_ACCOUNT_ID:-}
       MC_ADMIN_PASSWORD: ${MC_ADMIN_PASSWORD:-}
       MC_RETENTION_DAYS: ${MC_RETENTION_DAYS:-30}
+      MC_UPDATE_CHECK: ${MC_UPDATE_CHECK:-true}
+      MC_UPDATE_CHECK_INTERVAL: ${MC_UPDATE_CHECK_INTERVAL:-24h}
+      MC_TIMEZONE: ${MC_TIMEZONE:-}
     volumes:
       - ./data:/data
     # Only ./data is writable; /tmp (in memory) is for upload spill-over.

@@ -26,6 +26,7 @@ import (
 	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/rules"
 	"mailcatcher/internal/store"
+	"mailcatcher/internal/updates"
 )
 
 //go:embed all:templates static
@@ -45,6 +46,7 @@ type Server struct {
 	Mailer       *outbound.Mailer
 	Dest         *destinations.Service
 	Rules        *rules.Pusher
+	Updates      *updates.Checker // nil = update check off
 	// Drain collects mail waiting in the Worker's KV (the inbox Refresh button).
 	Drain func(ctx context.Context) (int, error)
 
@@ -312,6 +314,7 @@ type page struct {
 	Nav       []*store.Inbox // sidebar
 	NavUnread map[int64]int  // unread messages per sidebar inbox
 	Path      string         // current path, for the active sidebar entry
+	Update    *updates.View  // set for admins only, when a newer release exists
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
@@ -324,6 +327,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title stri
 		all, _ := s.Store.ListInboxes(r.Context())
 		p.Nav = c.visible(all)
 		p.NavUnread, _ = s.Store.UnreadCounts(r.Context(), c.User)
+		if s.Updates != nil && c.User.IsAdmin() {
+			if v := s.Updates.Snapshot(); v.Available() {
+				p.Update = &v
+			}
+		}
 	}
 	t, ok := s.pages[name]
 	if !ok {

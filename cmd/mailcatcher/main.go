@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // MC_TIMEZONE works without zoneinfo in the image
 
 	"mailcatcher/internal/api"
 	"mailcatcher/internal/cloudflare"
@@ -21,6 +23,7 @@ import (
 	"mailcatcher/internal/outbound"
 	"mailcatcher/internal/rules"
 	"mailcatcher/internal/store"
+	"mailcatcher/internal/updates"
 	"mailcatcher/internal/version"
 	"mailcatcher/internal/web"
 )
@@ -34,6 +37,7 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	time.Local = cfg.Location
 
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
@@ -63,6 +67,12 @@ func main() {
 	}
 	if cfg.WorkerURL == "" {
 		slog.Warn("MC_WORKER_URL is not set: reply, compose and forward are disabled")
+	}
+
+	var checker *updates.Checker
+	if cfg.UpdateCheck {
+		checker = updates.New(version.Version, filepath.Join(cfg.DataDir, "updates.json"), cfg.UpdateInterval)
+		ui.Updates = checker
 	}
 
 	mux := http.NewServeMux()
@@ -100,6 +110,9 @@ func main() {
 	go drainer.Run(ctx)
 	go retention(ctx, st, cfg.RetentionDays)
 	go pusher.Run(ctx)
+	if cfg.UpdateCheck {
+		go checker.Run(ctx)
+	}
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
