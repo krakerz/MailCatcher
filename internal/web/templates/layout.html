@@ -31,6 +31,19 @@
       {{end}}
     </nav>
     <div class="sidebar-foot">
+      {{with .Update}}
+      <div class="update-card" data-update-card="{{.Latest}}" hidden>
+        {{icon "circle-arrow-up"}}
+        <div>
+          <div>New version available <strong>{{.Latest}}</strong></div>
+          <div class="update-actions">
+            {{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener noreferrer">See what's new</a>{{end}}
+            <button type="button" class="link" data-update-dismiss>Dismiss</button>
+          </div>
+        </div>
+      </div>
+      {{end}}
+      <div class="zone" title="Times are shown in this zone (MC_TIMEZONE)">{{icon "clock"}} {{zone}}</div>
       <div class="theme-switch" role="group" aria-label="Theme">
         <button type="button" data-theme-set="system" title="System theme">{{icon "monitor"}}</button>
         <button type="button" data-theme-set="light" title="Light">{{icon "sun"}}</button>

@@ -14,6 +14,7 @@ mailcatcher receives every email sent to any address on your domain through Clou
 - Reply, compose and forward to verified addresses
 - Destination-address list (Cloudflare API) in the UI; admins add and remove addresses, and sending is checked against verified ones first
 - Auto-forward rules, applied by the Worker as mail arrives (also while the app is offline)
+- Update notice: admins see a dismissible card in the sidebar when a newer release is published on GitHub (can be turned off)
 - Test API with long-polling wait-for-message
 - Nothing is lost while the app is offline: the Worker keeps mail in Workers KV and the app collects it when it is back
 - Per-user read state: unread mail is highlighted and counted; select messages to mark them read or unread, or delete them
@@ -127,6 +128,9 @@ Tip: pass `since=<test start time>` so a test never picks up mail from an earlie
 | `MC_WORKER_URL` | — | Worker URL for sending; empty disables reply/compose/forward. |
 | `MC_ADMIN_PASSWORD` | random | First admin's password, used on first start only. |
 | `MC_RETENTION_DAYS` | `30` | Delete messages older than this many days (checked hourly); `0` keeps everything. |
+| `MC_UPDATE_CHECK` | `true` | Once per interval the app asks GitHub for the latest published release (this sends the server's public IP to GitHub) and shows admins a card when a newer one exists; `false` = no requests at all. |
+| `MC_UPDATE_CHECK_INTERVAL` | `24h` | How often to check: Go durations or whole days (`12h`, `7d`); at least `1h`. |
+| `MC_TIMEZONE` | UTC | Time zone for times in the UI and on sent mail, as an IANA name (e.g. `Asia/Singapore`); shown at the bottom of the sidebar. |
 | `MC_UID`, `MC_GID` | `1000` | Compose only: host user/group that owns `./data`. |
 | `MC_DATA_DIR` | `/data` | Database, raw mail and attachments. |
 | `MC_LISTEN` | `:8080` | Listen address. |

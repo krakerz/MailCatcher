@@ -54,6 +54,10 @@ var funcs = template.FuncMap{
 		}
 		return t.Local().Format("2006-01-02 15:04")
 	},
+	"zone":     zoneLabel,
+	"zoneName": func() string { return time.Local.String() },
+	// near: within a minute, so a Date header equal to the arrival time isn't shown twice.
+	"near": func(a, b time.Time) bool { d := a.Sub(b); return d < time.Minute && d > -time.Minute },
 	"full": func(t time.Time) string {
 		if t.IsZero() {
 			return "—"
@@ -100,4 +104,16 @@ var funcs = template.FuncMap{
 		}
 		return s
 	},
+}
+
+// zoneLabel names the display zone, e.g. "Singapore time (UTC+08:00)".
+func zoneLabel() string {
+	name := time.Local.String()
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = strings.ReplaceAll(name[i+1:], "_", " ") + " time"
+	}
+	if name == "UTC" {
+		return name
+	}
+	return name + " (UTC" + time.Now().Format("-07:00") + ")"
 }

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-19
+
+### Added
+- Admins see a dismissible "new version available" card in the sidebar; `MC_UPDATE_CHECK=false` turns the check off
+- `MC_TIMEZONE` setting: the UI and sent mail use that time zone, and the sidebar shows which one (e.g. "Singapore time")
+
+### Changed
+- The message view shows the time zone next to the date, and the received time only when it differs from the mail's own date
+
 ## [0.4.0] — 2026-11-17
 
 ### Changed
